@@ -25,6 +25,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ****************************************************************************/
 
 #include "subdivision_helper.h"
+#include <cmath>
+#include <limits>
 #include <cinolib/geometry/n_sided_poygon.h>
 #include <cinolib/sampling.h>
 #include <cinolib/harmonic_map.h>
@@ -210,13 +212,343 @@ MetaMesh SubdivisionHelper::subdivide()
             uint   pid;
             vec3d  pos;
             double dist;
+            const bool SubdivisionQueryFinite =
+                std::isfinite(query.x()) &&
+                std::isfinite(query.y()) &&
+                std::isfinite(query.z());
+
+            if (!SubdivisionQueryFinite)
+            {
+                std::cerr
+                    << "[SUBDIVISION_NONFINITE_QUERY]"
+                    << " type=face"
+                    << " mm_fid=" << mm_fid
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " patch_corners="
+                    << p.corners.size()
+                    << " query=" << query
+                    << std::endl;
+
+                assert(false);
+            }
+
             p.octree.closest_point(query, pid, pos, dist);
+
+            const bool SubdivisionClosestFinite =
+                pid < p.m.num_polys() &&
+                std::isfinite(pos.x()) &&
+                std::isfinite(pos.y()) &&
+                std::isfinite(pos.z()) &&
+                std::isfinite(dist);
+
+            if (!SubdivisionClosestFinite)
+            {
+                std::cerr
+                    << "[SUBDIVISION_NONFINITE_CLOSEST_POINT]"
+                    << " type=face"
+                    << " mm_fid=" << mm_fid
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " patch_corners="
+                    << p.corners.size()
+                    << " patch_polys="
+                    << p.m.num_polys()
+                    << " pid=" << pid
+                    << " query=" << query
+                    << " pos=" << pos
+                    << " dist=" << dist
+                    << std::endl;
+
+                assert(false);
+            }
             //std::cout << "found face midpoint in uv: " << pos << "\t" << dist << std::endl;
             double bary[3];
             p.m.poly_bary_coords(pid, pos, bary);
+
+            const bool SubdivisionBaryFinite =
+                std::isfinite(bary[0]) &&
+                std::isfinite(bary[1]) &&
+                std::isfinite(bary[2]);
+
+            if (!SubdivisionBaryFinite)
+            {
+                const uint OriginalPid = pid;
+                const vec3d OriginalPos = pos;
+                const double OriginalDist = dist;
+
+                const vec3d OriginalA =
+                    p.m.poly_vert(OriginalPid,0);
+
+                const vec3d OriginalB =
+                    p.m.poly_vert(OriginalPid,1);
+
+                const vec3d OriginalC =
+                    p.m.poly_vert(OriginalPid,2);
+
+                const vec3d OriginalU =
+                    OriginalB - OriginalA;
+
+                const vec3d OriginalV =
+                    OriginalC - OriginalA;
+
+                const double OriginalD00 =
+                    OriginalU.dot(OriginalU);
+
+                const double OriginalD01 =
+                    OriginalU.dot(OriginalV);
+
+                const double OriginalD11 =
+                    OriginalV.dot(OriginalV);
+
+                const double OriginalDen =
+                    OriginalD00 * OriginalD11 -
+                    OriginalD01 * OriginalD01;
+
+                uint BestPid =
+                    std::numeric_limits<uint>::max();
+
+                vec3d BestPos(0,0,0);
+
+                double BestDist =
+                    std::numeric_limits<double>::infinity();
+
+                double BestDen = 0.0;
+
+                uint DegenerateTriangleCount = 0;
+                uint NonFiniteTriangleCount = 0;
+
+                for (
+                    uint CandidatePid=0;
+                    CandidatePid<p.m.num_polys();
+                    ++CandidatePid
+                )
+                {
+                    const vec3d A =
+                        p.m.poly_vert(CandidatePid,0);
+
+                    const vec3d B =
+                        p.m.poly_vert(CandidatePid,1);
+
+                    const vec3d C =
+                        p.m.poly_vert(CandidatePid,2);
+
+                    const bool VerticesFinite =
+                        std::isfinite(A.x()) &&
+                        std::isfinite(A.y()) &&
+                        std::isfinite(A.z()) &&
+                        std::isfinite(B.x()) &&
+                        std::isfinite(B.y()) &&
+                        std::isfinite(B.z()) &&
+                        std::isfinite(C.x()) &&
+                        std::isfinite(C.y()) &&
+                        std::isfinite(C.z());
+
+                    if (!VerticesFinite)
+                    {
+                        ++NonFiniteTriangleCount;
+                        continue;
+                    }
+
+                    const vec3d EdgeU = B - A;
+                    const vec3d EdgeV = C - A;
+
+                    const double D00 =
+                        EdgeU.dot(EdgeU);
+
+                    const double D01 =
+                        EdgeU.dot(EdgeV);
+
+                    const double D11 =
+                        EdgeV.dot(EdgeV);
+
+                    const double Den =
+                        D00 * D11 -
+                        D01 * D01;
+
+                    double Scale = D00 * D11;
+
+                    if (Scale < 1e-30)
+                        Scale = 1e-30;
+
+                    // Den / Scale is approximately sin(angle)^2.
+                    // Reject exact and numerically near-degenerate triangles.
+                    if (
+                        !std::isfinite(Den) ||
+                        std::fabs(Den) <=
+                            1e-12 * Scale
+                    )
+                    {
+                        ++DegenerateTriangleCount;
+                        continue;
+                    }
+
+                    const vec3d CandidatePos =
+                        cinolib::triangle_closest_point(
+                            query,
+                            A,
+                            B,
+                            C
+                        );
+
+                    const double CandidateDist =
+                        (CandidatePos-query).length();
+
+                    const bool CandidateFinite =
+                        std::isfinite(CandidatePos.x()) &&
+                        std::isfinite(CandidatePos.y()) &&
+                        std::isfinite(CandidatePos.z()) &&
+                        std::isfinite(CandidateDist);
+
+                    if (!CandidateFinite)
+                    {
+                        ++NonFiniteTriangleCount;
+                        continue;
+                    }
+
+                    if (CandidateDist < BestDist)
+                    {
+                        BestPid = CandidatePid;
+                        BestPos = CandidatePos;
+                        BestDist = CandidateDist;
+                        BestDen = Den;
+                    }
+                }
+
+                if (
+                    BestPid ==
+                    std::numeric_limits<uint>::max()
+                )
+                {
+                    std::cerr
+                        << "[SUBDIVISION_DEGENERATE_UV_RECOVERY_FAILED]"
+                    << " type=face"
+                    << " mm_fid=" << mm_fid
+                    << " refined_vid=" << vid
+                        << " patch_id=" << patch_id
+                        << " patch_corners="
+                        << p.corners.size()
+                        << " original_pid="
+                        << OriginalPid
+                        << " original_pos="
+                        << OriginalPos
+                        << " original_dist="
+                        << OriginalDist
+                        << " original_den="
+                        << OriginalDen
+                        << " patch_polys="
+                        << p.m.num_polys()
+                        << " degenerate_triangles="
+                        << DegenerateTriangleCount
+                        << " nonfinite_triangles="
+                        << NonFiniteTriangleCount
+                        << std::endl;
+
+                    assert(false);
+                }
+
+                pid = BestPid;
+                pos = BestPos;
+                dist = BestDist;
+
+                p.m.poly_bary_coords(
+                    pid,
+                    pos,
+                    bary
+                );
+
+                const bool RecoveredBaryFinite =
+                    std::isfinite(bary[0]) &&
+                    std::isfinite(bary[1]) &&
+                    std::isfinite(bary[2]);
+
+                std::cerr
+                    << "[SUBDIVISION_DEGENERATE_UV_TRIANGLE_RECOVERED]"
+                    << " type=face"
+                    << " mm_fid=" << mm_fid
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " patch_corners="
+                    << p.corners.size()
+                    << " original_pid="
+                    << OriginalPid
+                    << " replacement_pid="
+                    << pid
+                    << " original_den="
+                    << OriginalDen
+                    << " replacement_den="
+                    << BestDen
+                    << " original_dist="
+                    << OriginalDist
+                    << " replacement_dist="
+                    << BestDist
+                    << " degenerate_triangles="
+                    << DegenerateTriangleCount
+                    << " bary=("
+                    << bary[0] << ","
+                    << bary[1] << ","
+                    << bary[2] << ")"
+                    << std::endl;
+
+                if (!RecoveredBaryFinite)
+                {
+                    std::cerr
+                        << "[SUBDIVISION_DEGENERATE_UV_RECOVERY_NONFINITE_BARY]"
+                        << " patch_id=" << patch_id
+                        << " replacement_pid="
+                        << pid
+                        << std::endl;
+
+                    assert(false);
+                }
+            }
             double u = p.m.poly_sample_param_at(pid, bary, U_param);
             double v = p.m.poly_sample_param_at(pid, bary, V_param);
             double w = p.m.poly_sample_param_at(pid, bary, W_param);
+
+            const bool SubdivisionParamFinite =
+                std::isfinite(u) &&
+                std::isfinite(v) &&
+                std::isfinite(w);
+
+            if (!SubdivisionParamFinite)
+            {
+                std::cerr
+                    << "[SUBDIVISION_NONFINITE_PARAM]"
+                    << " type=face"
+                    << " mm_fid=" << mm_fid
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " patch_corners="
+                    << p.corners.size()
+                    << " pid=" << pid
+                    << " query=" << query
+                    << " pos=" << pos
+                    << " dist=" << dist
+                    << " bary=("
+                    << bary[0] << ","
+                    << bary[1] << ","
+                    << bary[2] << ")"
+                    << " uvw=("
+                    << u << ","
+                    << v << ","
+                    << w << ")"
+                    << std::endl;
+
+                for (
+                    uint pvid :
+                    p.m.adj_p2v(pid)
+                )
+                {
+                    std::cerr
+                        << "  [SUBDIVISION_BAD_TRI_VERTEX]"
+                        << " pvid=" << pvid
+                        << " uv=" << p.m.vert(pvid)
+                        << std::endl;
+                }
+
+                assert(false);
+            }
             vec3d new_pos(u,v,w);
             mm_refined.vert(vid) = new_pos;
         }
@@ -246,13 +578,358 @@ MetaMesh SubdivisionHelper::subdivide()
             uint   pid;
             vec3d  pos;
             double dist;
+            const bool SubdivisionQueryFinite =
+                std::isfinite(query.x()) &&
+                std::isfinite(query.y()) &&
+                std::isfinite(query.z());
+
+            if (!SubdivisionQueryFinite)
+            {
+                std::cerr
+                    << "[SUBDIVISION_NONFINITE_QUERY]"
+                    << " type=edge"
+                    << " mm_eid=" << mm_eid
+                    << " mm_fid=" << mm_fid
+                    << " mm_v0=" << mm_v0
+                    << " mm_v1=" << mm_v1
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " patch_corners="
+                    << p.corners.size()
+                    << " query=" << query
+                    << std::endl;
+
+                assert(false);
+            }
+
             p.octree.closest_point(query, pid, pos, dist);
+
+            const bool SubdivisionClosestFinite =
+                pid < p.m.num_polys() &&
+                std::isfinite(pos.x()) &&
+                std::isfinite(pos.y()) &&
+                std::isfinite(pos.z()) &&
+                std::isfinite(dist);
+
+            if (!SubdivisionClosestFinite)
+            {
+                std::cerr
+                    << "[SUBDIVISION_NONFINITE_CLOSEST_POINT]"
+                    << " type=edge"
+                    << " mm_eid=" << mm_eid
+                    << " mm_fid=" << mm_fid
+                    << " mm_v0=" << mm_v0
+                    << " mm_v1=" << mm_v1
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " patch_corners="
+                    << p.corners.size()
+                    << " patch_polys="
+                    << p.m.num_polys()
+                    << " pid=" << pid
+                    << " query=" << query
+                    << " pos=" << pos
+                    << " dist=" << dist
+                    << std::endl;
+
+                assert(false);
+            }
             //std::cout << "found edge midpoint in uv: " << pos << "\tpid: " << pid << "\tdist: " << dist << std::endl;
             double bary[3];
             p.m.poly_bary_coords(pid, pos, bary);
+
+            const bool SubdivisionBaryFinite =
+                std::isfinite(bary[0]) &&
+                std::isfinite(bary[1]) &&
+                std::isfinite(bary[2]);
+
+            if (!SubdivisionBaryFinite)
+            {
+                const uint OriginalPid = pid;
+                const vec3d OriginalPos = pos;
+                const double OriginalDist = dist;
+
+                const vec3d OriginalA =
+                    p.m.poly_vert(OriginalPid,0);
+
+                const vec3d OriginalB =
+                    p.m.poly_vert(OriginalPid,1);
+
+                const vec3d OriginalC =
+                    p.m.poly_vert(OriginalPid,2);
+
+                const vec3d OriginalU =
+                    OriginalB - OriginalA;
+
+                const vec3d OriginalV =
+                    OriginalC - OriginalA;
+
+                const double OriginalD00 =
+                    OriginalU.dot(OriginalU);
+
+                const double OriginalD01 =
+                    OriginalU.dot(OriginalV);
+
+                const double OriginalD11 =
+                    OriginalV.dot(OriginalV);
+
+                const double OriginalDen =
+                    OriginalD00 * OriginalD11 -
+                    OriginalD01 * OriginalD01;
+
+                uint BestPid =
+                    std::numeric_limits<uint>::max();
+
+                vec3d BestPos(0,0,0);
+
+                double BestDist =
+                    std::numeric_limits<double>::infinity();
+
+                double BestDen = 0.0;
+
+                uint DegenerateTriangleCount = 0;
+                uint NonFiniteTriangleCount = 0;
+
+                for (
+                    uint CandidatePid=0;
+                    CandidatePid<p.m.num_polys();
+                    ++CandidatePid
+                )
+                {
+                    const vec3d A =
+                        p.m.poly_vert(CandidatePid,0);
+
+                    const vec3d B =
+                        p.m.poly_vert(CandidatePid,1);
+
+                    const vec3d C =
+                        p.m.poly_vert(CandidatePid,2);
+
+                    const bool VerticesFinite =
+                        std::isfinite(A.x()) &&
+                        std::isfinite(A.y()) &&
+                        std::isfinite(A.z()) &&
+                        std::isfinite(B.x()) &&
+                        std::isfinite(B.y()) &&
+                        std::isfinite(B.z()) &&
+                        std::isfinite(C.x()) &&
+                        std::isfinite(C.y()) &&
+                        std::isfinite(C.z());
+
+                    if (!VerticesFinite)
+                    {
+                        ++NonFiniteTriangleCount;
+                        continue;
+                    }
+
+                    const vec3d EdgeU = B - A;
+                    const vec3d EdgeV = C - A;
+
+                    const double D00 =
+                        EdgeU.dot(EdgeU);
+
+                    const double D01 =
+                        EdgeU.dot(EdgeV);
+
+                    const double D11 =
+                        EdgeV.dot(EdgeV);
+
+                    const double Den =
+                        D00 * D11 -
+                        D01 * D01;
+
+                    double Scale = D00 * D11;
+
+                    if (Scale < 1e-30)
+                        Scale = 1e-30;
+
+                    // Den / Scale is approximately sin(angle)^2.
+                    // Reject exact and numerically near-degenerate triangles.
+                    if (
+                        !std::isfinite(Den) ||
+                        std::fabs(Den) <=
+                            1e-12 * Scale
+                    )
+                    {
+                        ++DegenerateTriangleCount;
+                        continue;
+                    }
+
+                    const vec3d CandidatePos =
+                        cinolib::triangle_closest_point(
+                            query,
+                            A,
+                            B,
+                            C
+                        );
+
+                    const double CandidateDist =
+                        (CandidatePos-query).length();
+
+                    const bool CandidateFinite =
+                        std::isfinite(CandidatePos.x()) &&
+                        std::isfinite(CandidatePos.y()) &&
+                        std::isfinite(CandidatePos.z()) &&
+                        std::isfinite(CandidateDist);
+
+                    if (!CandidateFinite)
+                    {
+                        ++NonFiniteTriangleCount;
+                        continue;
+                    }
+
+                    if (CandidateDist < BestDist)
+                    {
+                        BestPid = CandidatePid;
+                        BestPos = CandidatePos;
+                        BestDist = CandidateDist;
+                        BestDen = Den;
+                    }
+                }
+
+                if (
+                    BestPid ==
+                    std::numeric_limits<uint>::max()
+                )
+                {
+                    std::cerr
+                        << "[SUBDIVISION_DEGENERATE_UV_RECOVERY_FAILED]"
+                    << " type=edge"
+                    << " mm_eid=" << mm_eid
+                    << " mm_fid=" << mm_fid
+                    << " mm_v0=" << mm_v0
+                    << " mm_v1=" << mm_v1
+                    << " refined_vid=" << vid
+                        << " patch_id=" << patch_id
+                        << " patch_corners="
+                        << p.corners.size()
+                        << " original_pid="
+                        << OriginalPid
+                        << " original_pos="
+                        << OriginalPos
+                        << " original_dist="
+                        << OriginalDist
+                        << " original_den="
+                        << OriginalDen
+                        << " patch_polys="
+                        << p.m.num_polys()
+                        << " degenerate_triangles="
+                        << DegenerateTriangleCount
+                        << " nonfinite_triangles="
+                        << NonFiniteTriangleCount
+                        << std::endl;
+
+                    assert(false);
+                }
+
+                pid = BestPid;
+                pos = BestPos;
+                dist = BestDist;
+
+                p.m.poly_bary_coords(
+                    pid,
+                    pos,
+                    bary
+                );
+
+                const bool RecoveredBaryFinite =
+                    std::isfinite(bary[0]) &&
+                    std::isfinite(bary[1]) &&
+                    std::isfinite(bary[2]);
+
+                std::cerr
+                    << "[SUBDIVISION_DEGENERATE_UV_TRIANGLE_RECOVERED]"
+                    << " type=edge"
+                    << " mm_eid=" << mm_eid
+                    << " mm_fid=" << mm_fid
+                    << " mm_v0=" << mm_v0
+                    << " mm_v1=" << mm_v1
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " patch_corners="
+                    << p.corners.size()
+                    << " original_pid="
+                    << OriginalPid
+                    << " replacement_pid="
+                    << pid
+                    << " original_den="
+                    << OriginalDen
+                    << " replacement_den="
+                    << BestDen
+                    << " original_dist="
+                    << OriginalDist
+                    << " replacement_dist="
+                    << BestDist
+                    << " degenerate_triangles="
+                    << DegenerateTriangleCount
+                    << " bary=("
+                    << bary[0] << ","
+                    << bary[1] << ","
+                    << bary[2] << ")"
+                    << std::endl;
+
+                if (!RecoveredBaryFinite)
+                {
+                    std::cerr
+                        << "[SUBDIVISION_DEGENERATE_UV_RECOVERY_NONFINITE_BARY]"
+                        << " patch_id=" << patch_id
+                        << " replacement_pid="
+                        << pid
+                        << std::endl;
+
+                    assert(false);
+                }
+            }
             double u = p.m.poly_sample_param_at(pid, bary, U_param);
             double v = p.m.poly_sample_param_at(pid, bary, V_param);
             double w = p.m.poly_sample_param_at(pid, bary, W_param);
+
+            const bool SubdivisionParamFinite =
+                std::isfinite(u) &&
+                std::isfinite(v) &&
+                std::isfinite(w);
+
+            if (!SubdivisionParamFinite)
+            {
+                std::cerr
+                    << "[SUBDIVISION_NONFINITE_PARAM]"
+                    << " type=edge"
+                    << " mm_eid=" << mm_eid
+                    << " mm_fid=" << mm_fid
+                    << " mm_v0=" << mm_v0
+                    << " mm_v1=" << mm_v1
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " patch_corners="
+                    << p.corners.size()
+                    << " pid=" << pid
+                    << " query=" << query
+                    << " pos=" << pos
+                    << " dist=" << dist
+                    << " bary=("
+                    << bary[0] << ","
+                    << bary[1] << ","
+                    << bary[2] << ")"
+                    << " uvw=("
+                    << u << ","
+                    << v << ","
+                    << w << ")"
+                    << std::endl;
+
+                for (
+                    uint pvid :
+                    p.m.adj_p2v(pid)
+                )
+                {
+                    std::cerr
+                        << "  [SUBDIVISION_BAD_TRI_VERTEX]"
+                        << " pvid=" << pvid
+                        << " uv=" << p.m.vert(pvid)
+                        << std::endl;
+                }
+
+                assert(false);
+            }
             vec3d new_pos(u,v,w);
             mm_refined.vert(vid) = new_pos;
         }

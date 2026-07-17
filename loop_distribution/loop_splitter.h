@@ -320,79 +320,359 @@ private:
             }
         }
 
-        //first initialize a map for loop edge/face
-        std::map<FaceEdge,size_t> Fedges;
+        // A geometric segment may be shared by more than one
+        // chosen path. Keep every owning path instead of forcing a
+        // single-valued FaceEdge -> path map.
+        std::map<FaceEdge,std::set<size_t> > FedgePaths;
+
+        size_t DuplicateSegmentOccurrences=0;
+        size_t SelfDuplicateOccurrences=0;
 
         for (size_t i=0;i<ChoosenPaths.size();i++)
         {
             std::vector<CoordType> PathPos;
-            anigraph.PathPos(ChoosenPaths[i],PathPos);
-            std::vector<std::pair<size_t,size_t> > FaceDirTemp;
-            anigraph.GetFacesDir(ChoosenPaths[i],FaceDirTemp,IsLoop[i]);
+            anigraph.PathPos(
+                ChoosenPaths[i],
+                PathPos
+            );
 
-            //size_t limit=FaceDirTemp.size();
+            std::vector<
+                std::pair<size_t,size_t>
+            > FaceDirTemp;
+
+            anigraph.GetFacesDir(
+                ChoosenPaths[i],
+                FaceDirTemp,
+                IsLoop[i]
+            );
+
             if (IsLoop[i])
             {
-                assert(PathPos.size()==(FaceDirTemp.size()));
+                assert(
+                    PathPos.size()==
+                    FaceDirTemp.size()
+                );
             }
             else
             {
-                assert(PathPos.size()==(FaceDirTemp.size()+1));
-                //limit=FaceDirTemp.size()-1;
+                assert(
+                    PathPos.size()==
+                    FaceDirTemp.size()+1
+                );
             }
 
-            for (size_t j=0;j<FaceDirTemp.size();j++)
+            for (
+                size_t j=0;
+                j<FaceDirTemp.size();
+                j++
+            )
             {
-                size_t IndexF=FaceDirTemp[j].first;
-                assert(IndexF>=0);
-                assert(IndexF<anigraph.Mesh().face.size());
-                CoordType P0=PathPos[j];
-                CoordType P1=PathPos[(j+1)%PathPos.size()];
-                if (P0==P1)continue;//snapped on the same position
-                FaceEdge key(P0,P1,IndexF);
-                //                if (Fedges.count(key)>0)
-                //                {
-                //                    std::cout<<"Pos0 "<<P0.X()<<","<<P0.Y()<<","<<P0.Z()<<std::endl;
-                //                    std::cout<<"Pos1 "<<P1.X()<<","<<P1.Y()<<","<<P1.Z()<<std::endl;
-                //                    std::cout<<"Path0 "<<Fedges[key]<<std::endl;
-                //                    std::cout<<"Path1 "<<i<<std::endl;
-                //                    assert(0);
-                //                }
-                assert(Fedges.count(key)==0);
-                Fedges[key]=i;
+                const size_t IndexF=
+                    FaceDirTemp[j].first;
+
+                assert(
+                    IndexF<
+                    anigraph.Mesh().face.size()
+                );
+
+                const CoordType P0=
+                    PathPos[j];
+
+                const CoordType P1=
+                    PathPos[
+                        (j+1)%PathPos.size()
+                    ];
+
+                if (P0==P1)
+                    continue;
+
+                const FaceEdge key(
+                    P0,
+                    P1,
+                    IndexF
+                );
+
+                std::set<size_t> &Owners=
+                    FedgePaths[key];
+
+                if (Owners.count(i)>0)
+                {
+                    ++SelfDuplicateOccurrences;
+
+                    std::cerr
+                        << "[CHOSEN_PATH_SELF_DUPLICATE_SEGMENT]"
+                        << " face=" << IndexF
+                        << " path=" << i
+                        << " step=" << j
+                        << std::endl;
+                }
+                else if (!Owners.empty())
+                {
+                    for (
+                        std::set<size_t>::const_iterator
+                            It=Owners.begin();
+                        It!=Owners.end();
+                        ++It
+                    )
+                    {
+                        ++DuplicateSegmentOccurrences;
+
+                        std::cerr
+                            << "[CHOSEN_PATH_SHARED_SEGMENT]"
+                            << " face=" << IndexF
+                            << " existing_path=" << *It
+                            << " incoming_path=" << i
+                            << " existing_is_loop="
+                            << IsLoop[*It]
+                            << " incoming_is_loop="
+                            << IsLoop[i]
+                            << " incoming_step=" << j
+                            << " existing_nodes="
+                            << ChoosenPaths[*It].nodes.size()
+                            << " incoming_nodes="
+                            << ChoosenPaths[i].nodes.size()
+                            << std::endl;
+                    }
+                }
+
+                Owners.insert(i);
             }
         }
 
-        std::vector<int> PathConcaveIndex;
-        PathConcaveIndex.resize(SideConcaveFeatures.size(),-2);
+        size_t MultiOwnerSegmentCount=0;
 
-        //for each sequence
-        for (size_t i=0;i<SideConcaveFeatures.size();i++)
+        for (
+            typename std::map<
+                FaceEdge,
+                std::set<size_t>
+            >::const_iterator
+                It=FedgePaths.begin();
+            It!=FedgePaths.end();
+            ++It
+        )
         {
-            //for each edge
-            for (size_t j=0;j<SideConcaveFeatures[i].size();j++)
+            if (It->second.size()>1)
+                ++MultiOwnerSegmentCount;
+        }
+
+        std::cerr
+            << "[MULTI_PATH_FEATURE_MAP_TOTAL]"
+            << " unique_segments="
+            << FedgePaths.size()
+            << " multi_owner_segments="
+            << MultiOwnerSegmentCount
+            << " duplicate_occurrences="
+            << DuplicateSegmentOccurrences
+            << " self_duplicate_occurrences="
+            << SelfDuplicateOccurrences
+            << std::endl;
+
+        std::vector<int> PathConcaveIndex;
+
+        PathConcaveIndex.resize(
+            SideConcaveFeatures.size(),
+            -2
+        );
+
+        // Resolve each concave side feature using the path that is
+        // common to every mapped edge of that complete feature.
+        for (
+            size_t i=0;
+            i<SideConcaveFeatures.size();
+            i++
+        )
+        {
+            bool HasMappedEdge=false;
+            bool HasUnmappedEdge=false;
+            bool CandidateSetInitialized=false;
+
+            size_t MappedEdgeCount=0;
+            size_t UnmappedEdgeCount=0;
+            size_t MultiOwnerEdgeCount=0;
+
+            std::set<size_t> CommonCandidates;
+
+            for (
+                size_t j=0;
+                j<SideConcaveFeatures[i].size();
+                j++
+            )
             {
-                size_t IndexF=SideConcaveFeatures[i][j].first;
-                size_t IndexE=SideConcaveFeatures[i][j].second;
-                assert(IndexF>=0);
-                assert(IndexF<anigraph.Mesh().face.size());
-                assert(IndexE>=0);
+                const size_t IndexF=
+                    SideConcaveFeatures[i][j].first;
+
+                const size_t IndexE=
+                    SideConcaveFeatures[i][j].second;
+
+                assert(
+                    IndexF<
+                    anigraph.Mesh().face.size()
+                );
+
                 assert(IndexE<3);
-                CoordType P0=anigraph.Mesh().face[IndexF].P0(IndexE);
-                CoordType P1=anigraph.Mesh().face[IndexF].P1(IndexE);
-                FaceEdge key(P0,P1,IndexF);
-                if (Fedges.count(key)==0)
-                    PathConcaveIndex[i]=-1;
+
+                const CoordType P0=
+                    anigraph.Mesh()
+                    .face[IndexF]
+                    .P0(IndexE);
+
+                const CoordType P1=
+                    anigraph.Mesh()
+                    .face[IndexF]
+                    .P1(IndexE);
+
+                const FaceEdge key(
+                    P0,
+                    P1,
+                    IndexF
+                );
+
+                typename std::map<
+                    FaceEdge,
+                    std::set<size_t>
+                >::const_iterator Found=
+                    FedgePaths.find(key);
+
+                if (Found==FedgePaths.end())
+                {
+                    HasUnmappedEdge=true;
+                    ++UnmappedEdgeCount;
+                    continue;
+                }
+
+                HasMappedEdge=true;
+                ++MappedEdgeCount;
+
+                if (Found->second.size()>1)
+                    ++MultiOwnerEdgeCount;
+
+                if (!CandidateSetInitialized)
+                {
+                    CommonCandidates=
+                        Found->second;
+
+                    CandidateSetInitialized=true;
+                }
                 else
                 {
-                    assert(PathConcaveIndex[i]!=-1);
-                    size_t currP=Fedges[key];
-                    if (PathConcaveIndex[i]==-2)
-                        PathConcaveIndex[i]=currP;
-                    else{
-                        assert(PathConcaveIndex[i]==(int)currP);
+                    std::set<size_t>
+                        Intersection;
+
+                    for (
+                        std::set<size_t>::const_iterator
+                            Candidate=
+                                CommonCandidates.begin();
+                        Candidate!=
+                            CommonCandidates.end();
+                        ++Candidate
+                    )
+                    {
+                        if (
+                            Found->second.count(
+                                *Candidate
+                            )>0
+                        )
+                        {
+                            Intersection.insert(
+                                *Candidate
+                            );
+                        }
                     }
+
+                    CommonCandidates.swap(
+                        Intersection
+                    );
                 }
+            }
+
+            if (!HasMappedEdge)
+            {
+                PathConcaveIndex[i]=-1;
+                continue;
+            }
+
+            if (HasUnmappedEdge)
+            {
+                std::cerr
+                    << "[CONCAVE_FEATURE_PARTIALLY_SAMPLED]"
+                    << " feature=" << i
+                    << " total_edges="
+                    << SideConcaveFeatures[i].size()
+                    << " mapped_edges="
+                    << MappedEdgeCount
+                    << " unmapped_edges="
+                    << UnmappedEdgeCount
+                    << " common_candidates="
+                    << CommonCandidates.size()
+                    << std::endl;
+
+                assert(!HasUnmappedEdge);
+            }
+
+            if (CommonCandidates.empty())
+            {
+                std::cerr
+                    << "[CONCAVE_FEATURE_PATH_SWITCH]"
+                    << " feature=" << i
+                    << " total_edges="
+                    << SideConcaveFeatures[i].size()
+                    << " multi_owner_edges="
+                    << MultiOwnerEdgeCount
+                    << std::endl;
+
+                assert(
+                    !CommonCandidates.empty()
+                );
+            }
+
+            if (CommonCandidates.size()>1)
+            {
+                std::cerr
+                    << "[CONCAVE_FEATURE_MULTIPLE_COMMON_PATHS]"
+                    << " feature=" << i
+                    << " total_edges="
+                    << SideConcaveFeatures[i].size()
+                    << " candidates=";
+
+                for (
+                    std::set<size_t>::const_iterator
+                        Candidate=
+                            CommonCandidates.begin();
+                    Candidate!=
+                        CommonCandidates.end();
+                    ++Candidate
+                )
+                {
+                    std::cerr
+                        << " "
+                        << *Candidate;
+                }
+
+                std::cerr << std::endl;
+
+                assert(
+                    CommonCandidates.size()==1
+                );
+            }
+
+            const size_t SelectedPath=
+                *CommonCandidates.begin();
+
+            PathConcaveIndex[i]=
+                (int)SelectedPath;
+
+            if (MultiOwnerEdgeCount>0)
+            {
+                std::cerr
+                    << "[CONCAVE_FEATURE_MULTI_PATH_RESOLVED]"
+                    << " feature=" << i
+                    << " selected_path="
+                    << SelectedPath
+                    << " total_edges="
+                    << SideConcaveFeatures[i].size()
+                    << " multi_owner_edges="
+                    << MultiOwnerEdgeCount
+                    << std::endl;
             }
         }
 
@@ -833,7 +1113,7 @@ public:
         }
     }
 
-    bool OpenPartition(std::vector<size_t> &Faces,
+    void OpenPartition(std::vector<size_t> &Faces,
                        std::set<std::pair<size_t,size_t> > &MustRemovedEdges)
 
     {

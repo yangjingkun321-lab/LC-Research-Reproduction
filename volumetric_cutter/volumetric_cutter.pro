@@ -9,6 +9,7 @@ INCLUDEPATH    += $$CINOLIB_PATH/external/eigen
 DEFINES        += CINOLIB_USES_QT
 DEFINES        += CINOLIB_USES_GRAPH_CUT
 DEFINES        += CINOLIB_USES_OPENGL
+DEFINES += GL_GLEXT_PROTOTYPES
 QMAKE_CXXFLAGS += -Wno-deprecated-declarations
 
 # enable Tetgen (used in cinolib/tetgen_wrap.cpp)
@@ -43,3 +44,8 @@ HEADERS += definitions.h
 HEADERS += state.h
 HEADERS += undoredo.h
 HEADERS += loops.h
+
+# Linux GLU linkage
+unix:!macx {
+    LIBS += -lGLU
+}

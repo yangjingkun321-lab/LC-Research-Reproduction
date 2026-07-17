@@ -242,16 +242,21 @@ public:
             {
                 size_t CurrGroup=AniGraph.Group[currNode];
                 int OppNode=AniGraph.OppositeNode(currNode);
-                assert(OppNode!=-1);
-                size_t OppGroup=AniGraph.Group[OppNode];
+                // LOOPYCUTS_ALLOW_MISSING_OPPOSITE_IN_DIJKSTRA
+                // Missing opposite nodes cannot be used for front-meeting tests.
+                // Their ordinary graph arcs are still processed below.
+                if (OppNode!=-1)
+                {
+                    size_t OppGroup=AniGraph.Group[OppNode];
 
-                //two different fronts meets!
-                if ((CurrGroup!=std::numeric_limits<size_t>::max())&&
-                        (OppGroup!=std::numeric_limits<size_t>::max())&&
-                        (AniGraph.Distance[currNode] > ScalarType(0))&&
-                        (AniGraph.Distance[OppNode] > ScalarType(0))&&
-                        (CurrGroup!=OppGroup))
-                    return currNode;
+                    //two different fronts meets!
+                    if ((CurrGroup!=std::numeric_limits<size_t>::max())&&
+                            (OppGroup!=std::numeric_limits<size_t>::max())&&
+                            (AniGraph.Distance[currNode] > ScalarType(0))&&
+                            (AniGraph.Distance[OppNode] > ScalarType(0))&&
+                            (CurrGroup!=OppGroup))
+                        return currNode;
+                }
             }
 
 
@@ -345,9 +350,12 @@ public:
 
             //get the opposite
             int OppI=AniGraph.OppositeNode(closeNodesDir0[i]);
-            closeNodes.push_back(OppI);
-            OppSameF=AniGraph.OppositeNodeSameF(OppI);
-            if (OppSameF!=-1)closeNodes.push_back(OppSameF);
+            if (OppI!=-1)
+            {
+                closeNodes.push_back(OppI);
+                OppSameF=AniGraph.OppositeNodeSameF((size_t)OppI);
+                if (OppSameF!=-1)closeNodes.push_back(OppSameF);
+            }
         }
         std::sort(closeNodes.begin(),closeNodes.end());
         closeNodes.erase( std::unique( closeNodes.begin(), closeNodes.end() ), closeNodes.end() );

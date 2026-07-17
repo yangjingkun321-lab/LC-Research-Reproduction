@@ -2475,8 +2475,38 @@ public:
         int Interval=(TangentNodes.size()/SParams.OrthoLoopsSample);
         Interval=std::max(Interval,1);
 
+        const size_t PlannedAttempts=
+                (TangentNodes.size()+Interval-1)/Interval;
+
+        std::cout
+                << "[FIX_INTER_CROSS_TANGENT_BEGIN]"
+                << " tangent_nodes=" << TangentNodes.size()
+                << " interval=" << Interval
+                << " planned_attempts=" << PlannedAttempts
+                << " ortho_loop_samples="
+                << SParams.OrthoLoopsSample
+                << std::endl;
+
+        size_t AttemptIndex=0;
+
         for (size_t i=0;i<TangentNodes.size();i+=Interval)
         {
+            // FIX_INTER_CROSS_TANGENT_PROGRESS
+            AttemptIndex++;
+
+            if ((AttemptIndex==1) ||
+                (AttemptIndex%5==0) ||
+                (AttemptIndex==PlannedAttempts))
+            {
+                std::cout
+                        << "[FIX_INTER_CROSS_TANGENT_PROGRESS]"
+                        << " attempt=" << AttemptIndex
+                        << "/" << PlannedAttempts
+                        << " tangent_index=" << i
+                        << " tangent_node=" << TangentNodes[i]
+                        << std::endl;
+            }
+
             bool Solved=TestAddingLoop(Features,ICross,ChoosenPaths,UnsolvedBefore,TangentNodes[i],NewPath);
             if (!Solved)continue;
             return true;
@@ -2500,6 +2530,14 @@ public:
         ICross.GetCrossUnsolved(Features,ChoosenPaths,CrossUnsolved,false);
         size_t UnsolvedBefore=CrossUnsolved.size();
         if (UnsolvedBefore==0)return false;
+
+        // FIX_INTER_CROSS_STEP_BEGIN
+        std::cout
+                << "[FIX_INTER_CROSS_STEP_BEGIN]"
+                << " unsolved=" << UnsolvedBefore
+                << " chosen_paths=" << ChoosenPaths.size()
+                << " insert_pos=" << InsertPos
+                << std::endl;
 //        for (size_t i=0;i<ChoosenPaths.size();i++)
 //            std::cout<<"Test "<<ChoosenPaths[i].nodes.size()<<std::endl;
 
@@ -2526,6 +2564,19 @@ public:
                 size_t IndexN=ChoosenPaths[IndexP].nodes[i];
                 TangentNodes.push_back(IndexN);
             }
+
+            // FIX_INTER_CROSS_UNSOLVED_PATH
+            std::cout
+                    << "[FIX_INTER_CROSS_UNSOLVED_PATH]"
+                    << " item=" << i
+                    << "/" << CrossUnsolved.size()
+                    << " path=" << IndexP
+                    << " start=" << IndexN0
+                    << " end=" << IndexN1
+                    << " path_nodes=" << SizeLoop
+                    << " tangent_nodes=" << TangentNodes.size()
+                    << std::endl;
+
             //std::cout<<"- 3 "<<std::endl;
             CandidateLoop NewPath;
             //std::cout<<"- test adding "<<std::endl;

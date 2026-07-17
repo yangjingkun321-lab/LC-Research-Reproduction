@@ -421,7 +421,9 @@ public:
         //std::cout<<"B"<<TangTest[1]<<std::endl;
         TangTest[2]=anigraph.OppositeNodeSameF(TangTest[0]);
         //std::cout<<"C"<<TangTest[2]<<std::endl;
-        TangTest[3]=anigraph.OppositeNodeSameF(TangTest[1]);
+        TangTest[3]=(TangTest[1]<0)
+                    ? -1
+                    : anigraph.OppositeNodeSameF((size_t)TangTest[1]);
         //std::cout<<"D"<<TangTest[3]<<std::endl;
 
         for (size_t k=0;k<4;k++)
@@ -958,8 +960,178 @@ public:
         IndexF1.clear();
         PreferredDir.clear();
         PreferredDir.resize(Mesh.face.size(),-1);
+        std::vector<int> PreferredSequence(Mesh.face.size(),-1);
         for (size_t i=0;i<SharpPos.size();i++)
         {
+
+            // LOOPYCUTS_DUMP_CONFLICTING_SHARP_SEQUENCES
+            if ((i==3)||(i==6))
+            {
+                char CsvName[128];
+                char ObjName[128];
+
+                sprintf(
+                    CsvName,
+                    "sharp_sequence_%zu.csv",
+                    i
+                );
+
+                sprintf(
+                    ObjName,
+                    "sharp_sequence_%zu.obj",
+                    i
+                );
+
+                FILE *SeqCSV=fopen(CsvName,"wt");
+                FILE *SeqOBJ=fopen(ObjName,"wt");
+
+                if (SeqCSV!=NULL)
+                {
+                    fprintf(
+                        SeqCSV,
+                        "sequence,edge_index,face,local_edge,"
+                        "v0,v1,"
+                        "x0,y0,z0,x1,y1,z1,length\n"
+                    );
+                }
+
+                if (SeqOBJ!=NULL)
+                {
+                    fprintf(
+                        SeqOBJ,
+                        "# LoopyCuts sharp sequence %zu\n",
+                        i
+                    );
+                }
+
+                std::map<size_t,size_t> VertexDegree;
+                ScalarType TotalLength=0;
+                size_t ObjVertexIndex=1;
+
+                for (size_t k=0;k<SharpPos[i].size();k++)
+                {
+                    vcg::face::Pos<FaceType> CurrPos=
+                        SharpPos[i][k];
+
+                    const size_t IndexF=
+                        vcg::tri::Index(
+                            Mesh,
+                            CurrPos.F()
+                        );
+
+                    const size_t IndexE=CurrPos.E();
+
+                    const size_t IndexV0=
+                        vcg::tri::Index(
+                            Mesh,
+                            CurrPos.V()
+                        );
+
+                    const size_t IndexV1=
+                        vcg::tri::Index(
+                            Mesh,
+                            CurrPos.VFlip()
+                        );
+
+                    const CoordType P0=
+                        CurrPos.V()->P();
+
+                    const CoordType P1=
+                        CurrPos.VFlip()->P();
+
+                    const ScalarType Length=
+                        (P1-P0).Norm();
+
+                    TotalLength+=Length;
+                    VertexDegree[IndexV0]++;
+                    VertexDegree[IndexV1]++;
+
+                    if (SeqCSV!=NULL)
+                    {
+                        fprintf(
+                            SeqCSV,
+                            "%zu,%zu,%zu,%zu,%zu,%zu,"
+                            "%.17g,%.17g,%.17g,"
+                            "%.17g,%.17g,%.17g,"
+                            "%.17g\n",
+                            i,
+                            k,
+                            IndexF,
+                            IndexE,
+                            IndexV0,
+                            IndexV1,
+                            (double)P0[0],
+                            (double)P0[1],
+                            (double)P0[2],
+                            (double)P1[0],
+                            (double)P1[1],
+                            (double)P1[2],
+                            (double)Length
+                        );
+                    }
+
+                    if (SeqOBJ!=NULL)
+                    {
+                        fprintf(
+                            SeqOBJ,
+                            "v %.17g %.17g %.17g\n",
+                            (double)P0[0],
+                            (double)P0[1],
+                            (double)P0[2]
+                        );
+
+                        fprintf(
+                            SeqOBJ,
+                            "v %.17g %.17g %.17g\n",
+                            (double)P1[0],
+                            (double)P1[1],
+                            (double)P1[2]
+                        );
+
+                        fprintf(
+                            SeqOBJ,
+                            "l %zu %zu\n",
+                            ObjVertexIndex,
+                            ObjVertexIndex+1
+                        );
+
+                        ObjVertexIndex+=2;
+                    }
+                }
+
+                if (SeqCSV!=NULL)
+                    fclose(SeqCSV);
+
+                if (SeqOBJ!=NULL)
+                    fclose(SeqOBJ);
+
+                std::cout
+                    << "[SHARP_SEQUENCE_DUMP]"
+                    << " sequence=" << i
+                    << " edges=" << SharpPos[i].size()
+                    << " vertices=" << VertexDegree.size()
+                    << " total_length=" << TotalLength
+                    << std::endl;
+
+                for (
+                    typename std::map<size_t,size_t>::const_iterator
+                        It=VertexDegree.begin();
+                    It!=VertexDegree.end();
+                    ++It
+                )
+                {
+                    if (It->second==2)
+                        continue;
+
+                    std::cout
+                        << "[SHARP_SEQUENCE_SPECIAL_VERTEX]"
+                        << " sequence=" << i
+                        << " vertex=" << It->first
+                        << " degree=" << It->second
+                        << std::endl;
+                }
+            }
+
 
             std::vector<size_t> IndexF0Temp,IndexF1Temp;
             std::vector<int> PreferredDirTemp;
@@ -975,14 +1147,247 @@ public:
                 if (PreferredDirTemp[j]==-1)continue;
                 if (PreferredDir[j]!=-1)
                 {
+                    // A face may be reached by two feature sequences at a
+                    // junction. If both sequences request the same cross-field
+                    // direction, the global per-face constraint is identical
+                    // and therefore unambiguous.
+                    if (PreferredDir[j]==PreferredDirTemp[j])
+                    {
+                        assert(PreferredSequence[j]>=0);
+
+                        const size_t ExistingSequence=
+                            (size_t)PreferredSequence[j];
+
+                        // Return true when FaceIndex is one of the two
+                        // incident faces of a geometric sharp edge that
+                        // belongs to SequenceIndex.
+                        const auto SequenceDirectOnFace=
+                            [&](const size_t SequenceIndex,
+                                const size_t FaceIndex)->bool
+                        {
+                            assert(
+                                SequenceIndex<SharpPos.size()
+                            );
+
+                            for (
+                                size_t k=0;
+                                k<SharpPos[SequenceIndex].size();
+                                ++k
+                            )
+                            {
+                                vcg::face::Pos<FaceType> Pos=
+                                    SharpPos[SequenceIndex][k];
+
+                                const size_t Face0=
+                                    vcg::tri::Index(
+                                        Mesh,
+                                        Pos.F()
+                                    );
+
+                                if (Face0==FaceIndex)
+                                    return true;
+
+                                Pos.FlipF();
+
+                                const size_t Face1=
+                                    vcg::tri::Index(
+                                        Mesh,
+                                        Pos.F()
+                                    );
+
+                                if (Face1==FaceIndex)
+                                    return true;
+                            }
+
+                            return false;
+                        };
+
+                        // Remove FaceIndex from both side partitions of
+                        // one sequence and return the removal counts.
+                        const auto RemoveFaceFromSequence=
+                            [&](const size_t SequenceIndex,
+                                const size_t FaceIndex)
+                            ->std::pair<size_t,size_t>
+                        {
+                            assert(
+                                SequenceIndex<IndexF0.size()
+                            );
+
+                            assert(
+                                SequenceIndex<IndexF1.size()
+                            );
+
+                            std::vector<size_t> &Side0=
+                                IndexF0[SequenceIndex];
+
+                            std::vector<size_t> &Side1=
+                                IndexF1[SequenceIndex];
+
+                            const size_t Side0Before=
+                                Side0.size();
+
+                            const size_t Side1Before=
+                                Side1.size();
+
+                            Side0.erase(
+                                std::remove(
+                                    Side0.begin(),
+                                    Side0.end(),
+                                    FaceIndex
+                                ),
+                                Side0.end()
+                            );
+
+                            Side1.erase(
+                                std::remove(
+                                    Side1.begin(),
+                                    Side1.end(),
+                                    FaceIndex
+                                ),
+                                Side1.end()
+                            );
+
+                            return std::make_pair(
+                                Side0Before-Side0.size(),
+                                Side1Before-Side1.size()
+                            );
+                        };
+
+                        const bool ExistingDirect=
+                            SequenceDirectOnFace(
+                                ExistingSequence,
+                                j
+                            );
+
+                        const bool IncomingDirect=
+                            SequenceDirectOnFace(
+                                i,
+                                j
+                            );
+
+                        // A face directly incident to sharp edges from
+                        // both different sequences would contain two
+                        // competing geometric sharp features. Do not
+                        // silently choose one in that ambiguous case.
+                        if (
+                            ExistingDirect &&
+                            IncomingDirect
+                        )
+                        {
+                            std::cerr
+                                << "[SHARP_PARTITION_DIRECT_DIRECT_CONFLICT]"
+                                << " face=" << j
+                                << " existing_sequence="
+                                << ExistingSequence
+                                << " incoming_sequence=" << i
+                                << " direction="
+                                << PreferredDir[j]
+                                << std::endl;
+
+                            assert(0);
+                        }
+
+                        size_t RetainedSequence=
+                            ExistingSequence;
+
+                        size_t RemovedSequence=i;
+
+                        const char *ResolutionReason=
+                            "neither_direct_first_owner";
+
+                        std::pair<size_t,size_t>
+                            RemovedCount(0,0);
+
+                        if (
+                            IncomingDirect &&
+                            !ExistingDirect
+                        )
+                        {
+                            // The incoming sequence has an actual sharp
+                            // edge on this face. Transfer ownership to it
+                            // and remove the face from the older sequence.
+                            RemovedCount=
+                                RemoveFaceFromSequence(
+                                    ExistingSequence,
+                                    j
+                                );
+
+                            RetainedSequence=i;
+                            RemovedSequence=
+                                ExistingSequence;
+
+                            PreferredSequence[j]=(int)i;
+
+                            ResolutionReason=
+                                "incoming_direct";
+                        }
+                        else
+                        {
+                            // Existing sequence directly owns the face,
+                            // or neither sequence directly owns it. Keep
+                            // the existing owner and trim the incoming one.
+                            RemovedCount=
+                                RemoveFaceFromSequence(
+                                    i,
+                                    j
+                                );
+
+                            if (ExistingDirect)
+                                ResolutionReason=
+                                    "existing_direct";
+                        }
+
+                        std::cerr
+                            << "[SHARP_PARTITION_DIRECT_OWNER_RESOLVED]"
+                            << " face=" << j
+                            << " incoming_sequence=" << i
+                            << " previous_owner="
+                            << ExistingSequence
+                            << " retained_sequence="
+                            << RetainedSequence
+                            << " removed_sequence="
+                            << RemovedSequence
+                            << " existing_direct="
+                            << ExistingDirect
+                            << " incoming_direct="
+                            << IncomingDirect
+                            << " reason="
+                            << ResolutionReason
+                            << " direction="
+                            << PreferredDir[j]
+                            << " removed_side0="
+                            << RemovedCount.first
+                            << " removed_side1="
+                            << RemovedCount.second
+                            << " removed_sequence_side0_remaining="
+                            << IndexF0[RemovedSequence].size()
+                            << " removed_sequence_side1_remaining="
+                            << IndexF1[RemovedSequence].size()
+                            << std::endl;
+
+                        continue;
+                    }
+
                     vcg::tri::UpdateSelection<MeshType>::Clear(Mesh);
                     Mesh.face[j].SetS();
+                    std::cerr
+                        << "[SHARP_PARTITION_OVERLAP]"
+                        << " sequence=" << i
+                        << " face=" << j
+                        << " existing_sequence=" << PreferredSequence[j]
+                        << " existing_dir=" << PreferredDir[j]
+                        << " incoming_dir=" << PreferredDirTemp[j]
+                        << " sequence_edges=" << SharpPos[i].size()
+                        << " side0_faces=" << IndexF0Temp.size()
+                        << " side1_faces=" << IndexF1Temp.size()
+                        << std::endl;
                     vcg::tri::io::ExporterPLY<MeshType>::Save(Mesh,"test.ply",vcg::tri::io::Mask::IOM_FACEFLAGS);
                     assert(0);
                 }
 
                 assert(PreferredDir[j]==-1);
                 PreferredDir[j]=PreferredDirTemp[j];
+                PreferredSequence[j]=(int)i;
             }
         }
 

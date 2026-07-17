@@ -345,7 +345,7 @@ public:
                 anigraph.GetFaceEdgeDir(currN,FaceI,EdgeI,M4Dir);
                 std::pair<int,int> key((int)FaceI,(int)EdgeI);
                 if (FeatureFaceEdges.count(key)==0)continue;
-                int FeatureIndex=-FeatureFaceEdges[key];
+                int FeatureIndex=-(FeatureFaceEdges[key]+1);
                 //negative for the sharp features
                 SortedCross[i].push_back(IntersectionInterval(FeatureIndex,(int)j,(int)j));
             }
@@ -394,8 +394,8 @@ public:
             {
                 size_t CurrI=j;
                 size_t NextI=(j+1)%SortedCross[i].size();
-                size_t IndexPath0=SortedCross[i][CurrI].PathIndex;
-                size_t IndexPath1=SortedCross[i][NextI].PathIndex;
+                int IndexPath0=SortedCross[i][CurrI].PathIndex;
+                int IndexPath1=SortedCross[i][NextI].PathIndex;
                 if (IndexPath0!=IndexPath1)continue;
 
                 if (PrintDebug)
@@ -410,11 +410,27 @@ public:
 //                assert(NodeI0>=0);
 //                assert(NodeI1>=0);
 //                assert(NodeI0!=NodeI1);
+
+                const size_t NumNodes=TestPath[i].nodes.size();
+                assert(NumNodes>0);
+                assert(NodeI0<NumNodes);
+                assert(NodeI1<NumNodes);
+
+                const size_t ForwardGap=
+                        (NodeI1+NumNodes-NodeI0)%NumNodes;
+
+                // INTER_CROSS_SKIP_ADJACENT_CONTACT
+                //
+                // Consecutive samples belonging to the same feature/path
+                // describe one continuous contact interval. They must not
+                // be interpreted as thousands of separate unsolved gaps.
+                if (ForwardGap==1)
+                    continue;
+
                 if (NodeI0==NodeI1)//single intersection
                 {
                     assert(NodeI0>=0);
                     assert(NodeI1>=0);
-                    size_t NumNodes=TestPath[i].nodes.size();
                     size_t Step1_4=std::max((size_t)1,NumNodes/4);
                     size_t Step1_2=std::max((size_t)1,NumNodes/2);
                     NodeI0=(NodeI0+Step1_4)%NumNodes;

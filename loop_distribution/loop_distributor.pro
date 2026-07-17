@@ -74,6 +74,8 @@ CONFIG(release, debug|release){
 ############################ INCLUDES ############################
 
 DEFINES += NO_PATCH_SIZING
+DEFINES += GL_GLEXT_PROTOTYPES
+QMAKE_CXXFLAGS += -fpermissive
 
 INCLUDEPATH += $$VCGLIBDIR
 INCLUDEPATH += $$ANTDIR/include
@@ -99,3 +101,9 @@ mac{
   DEPENDPATH += .
 }
 
+
+# Linux AntTweakBar linkage
+unix:!macx {
+    LIBS += $$ANTDIR/lib/libAntTweakBar.a
+    LIBS += -lGL -lGLU -lX11 -lXext -lpthread -ldl -lm
+}

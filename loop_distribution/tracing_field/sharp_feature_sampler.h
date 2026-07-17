@@ -1511,7 +1511,42 @@ public:
         //see if has a selected vertex at the beginning
         if (Pos.V()->IsS())
         {
-            assert(!Pos.VFlip()->IsS());
+            if (Pos.VFlip()->IsS())
+        {
+            const size_t DebugFace =
+                vcg::tri::Index(
+                    anigraph.Mesh(),
+                    Pos.F()
+                );
+
+            const size_t DebugEdge = Pos.E();
+
+            const size_t DebugV =
+                vcg::tri::Index(
+                    anigraph.Mesh(),
+                    Pos.V()
+                );
+
+            const size_t DebugVFlip =
+                vcg::tri::Index(
+                    anigraph.Mesh(),
+                    Pos.VFlip()
+                );
+
+            std::cerr
+                << "[SELECTED_EDGE_BOTH_ENDPOINTS]"
+                << " face=" << DebugFace
+                << " local_edge=" << DebugEdge
+                << " vertex0=" << DebugV
+                << " vertex1=" << DebugVFlip
+                << " selected0="
+                << Pos.V()->IsS()
+                << " selected1="
+                << Pos.VFlip()->IsS()
+                << std::endl;
+        }
+
+        assert(!Pos.VFlip()->IsS());
             return true;
         }
         if (Pos.VFlip()->IsS())
@@ -2175,13 +2210,40 @@ public:
 
         bool SharpEnd0=(SharpVertEnd.count(IndexV0)>0);
         bool SharpEnd1=(SharpVertEnd.count(IndexV1)>0);
+
+        bool SharpV0=(SharpVertSet.count(IndexV0)>0);
+        bool SharpV1=(SharpVertSet.count(IndexV1)>0);
+
+        if ((SharpEnd0)&&(SharpEnd1))
+        {
+            std::cerr
+                    << "[SNAP_POS_BOTH_SHARP_ENDS]"
+                    << " graph_node=" << IndexNode
+                    << " face=" << faceID
+                    << " edge=" << edgeIndex
+                    << " m4dir=" << M4Dir
+                    << " vertex0=" << IndexV0
+                    << " vertex1=" << IndexV1
+                    << " sharp_end0=" << SharpEnd0
+                    << " sharp_end1=" << SharpEnd1
+                    << " sharp_vertex0=" << SharpV0
+                    << " sharp_vertex1=" << SharpV1
+                    << " mesh_selected0="
+                    << anigraph.Mesh().vert[IndexV0].IsS()
+                    << " mesh_selected1="
+                    << anigraph.Mesh().vert[IndexV1].IsS()
+                    << " sharp_end_set_size="
+                    << SharpVertEnd.size()
+                    << " sharp_vertex_set_size="
+                    << SharpVertSet.size()
+                    << std::endl;
+        }
+
         assert(!((SharpEnd0)&&(SharpEnd1)));
 
         if (SharpEnd0)return Pos0;
         if (SharpEnd1)return Pos1;
 
-        bool SharpV0=(SharpVertSet.count(IndexV0)>0);
-        bool SharpV1=(SharpVertSet.count(IndexV1)>0);
         assert(!(SharpV0 && SharpV1));
         assert((SharpV0 || SharpV1));
 
@@ -2205,6 +2267,70 @@ public:
         //get concave end vertices
         std::set<size_t> SharpEndSet;
         GetConcaveEndVert(SharpEndSet);
+
+        // Diagnose every mesh edge whose two endpoints are both contained
+        // in the exact runtime endpoint set used by SnapPos().
+        {
+            std::set<std::pair<size_t,size_t> > ReportedEdges;
+            size_t AmbiguousEdgeCount=0;
+
+            for (size_t FaceIndex=0;
+                 FaceIndex<anigraph.Mesh().face.size();
+                 ++FaceIndex)
+            {
+                for (size_t EdgeIndex=0;
+                     EdgeIndex<3;
+                     ++EdgeIndex)
+                {
+                    size_t Vertex0=vcg::tri::Index(
+                                anigraph.Mesh(),
+                                anigraph.Mesh().face[FaceIndex].V0(EdgeIndex));
+
+                    size_t Vertex1=vcg::tri::Index(
+                                anigraph.Mesh(),
+                                anigraph.Mesh().face[FaceIndex].V1(EdgeIndex));
+
+                    if (SharpEndSet.count(Vertex0)==0)
+                        continue;
+
+                    if (SharpEndSet.count(Vertex1)==0)
+                        continue;
+
+                    size_t MinVertex=
+                            (Vertex0<Vertex1)?Vertex0:Vertex1;
+
+                    size_t MaxVertex=
+                            (Vertex0<Vertex1)?Vertex1:Vertex0;
+
+                    std::pair<size_t,size_t> EdgeKey(
+                                MinVertex,
+                                MaxVertex);
+
+                    if (!ReportedEdges.insert(EdgeKey).second)
+                        continue;
+
+                    ++AmbiguousEdgeCount;
+
+                    std::cerr
+                            << "[SNAP_RUNTIME_AMBIGUOUS_EDGE]"
+                            << " face=" << FaceIndex
+                            << " edge=" << EdgeIndex
+                            << " vertex0=" << MinVertex
+                            << " vertex1=" << MaxVertex
+                            << " face_edge_sharp="
+                            << anigraph.Mesh().face[FaceIndex].
+                                   IsFaceEdgeS(EdgeIndex)
+                            << std::endl;
+                }
+            }
+
+            std::cerr
+                    << "[SNAP_RUNTIME_AMBIGUOUS_EDGE_TOTAL]"
+                    << " count=" << AmbiguousEdgeCount
+                    << " sharp_end_set_size="
+                    << SharpEndSet.size()
+                    << std::endl;
+        }
 
         //then the set of vertices on sharp concave features
         std::set<size_t> SharpVertSet;
@@ -2286,6 +2412,216 @@ public:
 
             //size_t NumSel=anigraph.Mesh().SelectValence4EndPos();
             assert(NumSel>0);
+
+            // Diagnose every ConvexCompletionPaths/Loops mesh edge
+            // whose endpoints are both selected by SelectEndSharpVert().
+            {
+                std::set<std::pair<size_t,size_t> > ReportedEdges;
+
+                size_t PathOccurrenceCount=0;
+                size_t LoopOccurrenceCount=0;
+
+                for (size_t CompletionIndex=0;
+                     CompletionIndex<ConvexCompletionPaths.size();
+                     ++CompletionIndex)
+                {
+                    for (size_t NodePosition=0;
+                         NodePosition<
+                         ConvexCompletionPaths[CompletionIndex].
+                             nodes.size();
+                         ++NodePosition)
+                    {
+                        int CurrNode=
+                                ConvexCompletionPaths[
+                                    CompletionIndex
+                                ].nodes[NodePosition];
+
+                        size_t FaceI,EdgeI,M4Dir;
+
+                        anigraph.GetFaceEdgeDir(
+                                    CurrNode,
+                                    FaceI,
+                                    EdgeI,
+                                    M4Dir);
+
+                        VertexType *v0=
+                                anigraph.Mesh().
+                                    face[FaceI].V0(EdgeI);
+
+                        VertexType *v1=
+                                anigraph.Mesh().
+                                    face[FaceI].V1(EdgeI);
+
+                        if (!(v0->IsS() && v1->IsS()))
+                            continue;
+
+                        ++PathOccurrenceCount;
+
+                        size_t VertexIndex0=
+                                vcg::tri::Index(
+                                    anigraph.Mesh(),
+                                    v0);
+
+                        size_t VertexIndex1=
+                                vcg::tri::Index(
+                                    anigraph.Mesh(),
+                                    v1);
+
+                        size_t MinVertex=
+                                (VertexIndex0<VertexIndex1)?
+                                VertexIndex0:
+                                VertexIndex1;
+
+                        size_t MaxVertex=
+                                (VertexIndex0<VertexIndex1)?
+                                VertexIndex1:
+                                VertexIndex0;
+
+                        std::pair<size_t,size_t> EdgeKey(
+                                    MinVertex,
+                                    MaxVertex);
+
+                        if (!ReportedEdges.insert(EdgeKey).second)
+                            continue;
+
+                        std::cerr
+                                << "[SNAP_CONVEX_COMPLETION_BOTH_SELECTED_EDGE]"
+                                << " kind=path"
+                                << " completion_index="
+                                << CompletionIndex
+                                << " node_position="
+                                << NodePosition
+                                << " graph_node="
+                                << CurrNode
+                                << " face="
+                                << FaceI
+                                << " edge="
+                                << EdgeI
+                                << " m4dir="
+                                << M4Dir
+                                << " vertex0="
+                                << MinVertex
+                                << " vertex1="
+                                << MaxVertex
+                                << " face_edge_sharp="
+                                << anigraph.Mesh().
+                                   face[FaceI].
+                                   IsFaceEdgeS(EdgeI)
+                                << " endpoint_count0="
+                                << v0->Q()
+                                << " endpoint_count1="
+                                << v1->Q()
+                                << std::endl;
+                    }
+                }
+
+                for (size_t CompletionIndex=0;
+                     CompletionIndex<ConvexCompletionLoops.size();
+                     ++CompletionIndex)
+                {
+                    for (size_t NodePosition=0;
+                         NodePosition<
+                         ConvexCompletionLoops[CompletionIndex].
+                             nodes.size();
+                         ++NodePosition)
+                    {
+                        int CurrNode=
+                                ConvexCompletionLoops[
+                                    CompletionIndex
+                                ].nodes[NodePosition];
+
+                        size_t FaceI,EdgeI,M4Dir;
+
+                        anigraph.GetFaceEdgeDir(
+                                    CurrNode,
+                                    FaceI,
+                                    EdgeI,
+                                    M4Dir);
+
+                        VertexType *v0=
+                                anigraph.Mesh().
+                                    face[FaceI].V0(EdgeI);
+
+                        VertexType *v1=
+                                anigraph.Mesh().
+                                    face[FaceI].V1(EdgeI);
+
+                        if (!(v0->IsS() && v1->IsS()))
+                            continue;
+
+                        ++LoopOccurrenceCount;
+
+                        size_t VertexIndex0=
+                                vcg::tri::Index(
+                                    anigraph.Mesh(),
+                                    v0);
+
+                        size_t VertexIndex1=
+                                vcg::tri::Index(
+                                    anigraph.Mesh(),
+                                    v1);
+
+                        size_t MinVertex=
+                                (VertexIndex0<VertexIndex1)?
+                                VertexIndex0:
+                                VertexIndex1;
+
+                        size_t MaxVertex=
+                                (VertexIndex0<VertexIndex1)?
+                                VertexIndex1:
+                                VertexIndex0;
+
+                        std::pair<size_t,size_t> EdgeKey(
+                                    MinVertex,
+                                    MaxVertex);
+
+                        if (!ReportedEdges.insert(EdgeKey).second)
+                            continue;
+
+                        std::cerr
+                                << "[SNAP_CONVEX_COMPLETION_BOTH_SELECTED_EDGE]"
+                                << " kind=loop"
+                                << " completion_index="
+                                << CompletionIndex
+                                << " node_position="
+                                << NodePosition
+                                << " graph_node="
+                                << CurrNode
+                                << " face="
+                                << FaceI
+                                << " edge="
+                                << EdgeI
+                                << " m4dir="
+                                << M4Dir
+                                << " vertex0="
+                                << MinVertex
+                                << " vertex1="
+                                << MaxVertex
+                                << " face_edge_sharp="
+                                << anigraph.Mesh().
+                                   face[FaceI].
+                                   IsFaceEdgeS(EdgeI)
+                                << " endpoint_count0="
+                                << v0->Q()
+                                << " endpoint_count1="
+                                << v1->Q()
+                                << std::endl;
+                    }
+                }
+
+                std::cerr
+                        << "[SNAP_CONVEX_COMPLETION_BOTH_SELECTED_TOTAL]"
+                        << " unique_edges="
+                        << ReportedEdges.size()
+                        << " path_occurrences="
+                        << PathOccurrenceCount
+                        << " loop_occurrences="
+                        << LoopOccurrenceCount
+                        << " selected_endpoint_count="
+                        << NumSel
+                        << std::endl;
+            }
+
             for (size_t i=0;i<ConvexCompletionPaths.size();i++)
             {
                 for (size_t j=0;j<ConvexCompletionPaths[i].nodes.size();j++)
@@ -2296,7 +2632,35 @@ public:
                     VertexType *v0=anigraph.Mesh().face[FaceI].V0(EdgeI);
                     VertexType *v1=anigraph.Mesh().face[FaceI].V1(EdgeI);
                     if ((!v0->IsS()) && (!v1->IsS()))continue;
-                    assert(!(v0->IsS() && v1->IsS()));
+                    if (v0->IsS() && v1->IsS())
+            {
+                int VertexIndex0=vcg::tri::Index(
+                            anigraph.Mesh(),
+                            v0);
+
+                int VertexIndex1=vcg::tri::Index(
+                            anigraph.Mesh(),
+                            v1);
+
+                std::cerr
+                        << "[SNAP_LOOPS_BOTH_SELECTED]"
+                        << " source_line=" << __LINE__
+                        << " vertex0=" << VertexIndex0
+                        << " vertex1=" << VertexIndex1
+                        << " selected0=" << v0->IsS()
+                        << " selected1=" << v1->IsS()
+                        << " position0=("
+                        << v0->P()[0] << ","
+                        << v0->P()[1] << ","
+                        << v0->P()[2] << ")"
+                        << " position1=("
+                        << v1->P()[0] << ","
+                        << v1->P()[1] << ","
+                        << v1->P()[2] << ")"
+                        << std::endl;
+            }
+
+            assert(!(v0->IsS() && v1->IsS()));
                     if (v0->IsS())anigraph.Graph[CurrNode]->pos=v0->P();
                     if (v1->IsS())anigraph.Graph[CurrNode]->pos=v1->P();
                 }
@@ -2311,7 +2675,35 @@ public:
                     VertexType *v0=anigraph.Mesh().face[FaceI].V0(EdgeI);
                     VertexType *v1=anigraph.Mesh().face[FaceI].V1(EdgeI);
                     if ((!v0->IsS()) && (!v1->IsS()))continue;
-                    assert(!(v0->IsS() && v1->IsS()));
+                    if (v0->IsS() && v1->IsS())
+            {
+                int VertexIndex0=vcg::tri::Index(
+                            anigraph.Mesh(),
+                            v0);
+
+                int VertexIndex1=vcg::tri::Index(
+                            anigraph.Mesh(),
+                            v1);
+
+                std::cerr
+                        << "[SNAP_LOOPS_BOTH_SELECTED]"
+                        << " source_line=" << __LINE__
+                        << " vertex0=" << VertexIndex0
+                        << " vertex1=" << VertexIndex1
+                        << " selected0=" << v0->IsS()
+                        << " selected1=" << v1->IsS()
+                        << " position0=("
+                        << v0->P()[0] << ","
+                        << v0->P()[1] << ","
+                        << v0->P()[2] << ")"
+                        << " position1=("
+                        << v1->P()[0] << ","
+                        << v1->P()[1] << ","
+                        << v1->P()[2] << ")"
+                        << std::endl;
+            }
+
+            assert(!(v0->IsS() && v1->IsS()));
                     if (v0->IsS()){anigraph.Graph[CurrNode]->pos=v0->P();SnappedNodes.insert(CurrNode);}
                     if (v1->IsS()){anigraph.Graph[CurrNode]->pos=v1->P();SnappedNodes.insert(CurrNode);}
                 }
