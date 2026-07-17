@@ -434,20 +434,16 @@ run_case()
     local maxrss
 
     maxrss="$(
-        awk -F: '
-            /Maximum resident set size/
-            {
-                gsub(/[[:space:]]/, "", $2)
-                value=$2
-            }
-
-            END
-            {
-                if(value=="") value="-"
-                print value
-            }
-        ' "$vclog"
+        sed -nE \
+          's/^[[:space:]]*Maximum resident set size \(kbytes\):[[:space:]]*([0-9]+).*$/\1/p' \
+          "$vclog" \
+        | tail -n 1
     )"
+
+    if [[ -z "$maxrss" ]]
+    then
+        maxrss="-"
+    fi
 
     local zero
     local dead
