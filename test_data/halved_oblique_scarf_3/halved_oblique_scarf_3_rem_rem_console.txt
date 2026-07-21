@@ -1,0 +1,28 @@
+Initializing graph ... Subdivision 3 Edge distance 0.28868
+Sampled in Average 3.06865 samples per Edge 
+done. Sampled 453816 edge-nodes. Time 126435
+Setting connections ... done. Time 788792
+Initializing points-nodes mapping ... done. Time 77230
+Adding singularity nodes ... done. Added 0 singularity nodes. Time 2
+Adding sink nodes ...done. Time 6
+Deleting unconnected nodes ...Deleting Unreferenced Step
+Deleting Unreferenced Step
+Deleting Unreferenced Step
+Deleting Unreferenced Step
+Deleting Unreferenced Step
+done. Deleted 231240 nodes. Time 565627
+Re-initializing points-nodes mapping ... done. Time 99470
+Initialize  opposite nodes... WARNING NO OPPOSITE NODE 
+WARNING NO OPPOSITE NODE 
+WARNING NO OPPOSITE NODE 
+WARNING NO OPPOSITE NODE 
+WARNING NO OPPOSITE NODE 
+WARNING NO OPPOSITE NODE 
+WARNING NO OPPOSITE NODE 
+WARNING NO OPPOSITE NODE 
+WARNING NO OPPOSITE NODE 
+WARNING NO OPPOSITE NODE 
+WARNING NO OPPOSITE NODE 
+done. Time 30287
+Initializing Intersections Table
+Initializing Vert Intersection Table

@@ -1,0 +1,54 @@
+# ============================================================
+# Local qmake build products
+# ============================================================
+
+/loop_distribution/.qmake.stash
+/loop_distribution/Makefile
+/loop_distribution/*.o
+/loop_distribution/moc_*.cpp
+/loop_distribution/moc_predefs.h
+/loop_distribution/loop_distributor
+/loop_distribution/build*.log
+
+/volumetric_cutter/.qmake.stash
+/volumetric_cutter/Makefile
+/volumetric_cutter/*.o
+/volumetric_cutter/volumetric_cutter
+/volumetric_cutter/build*.log
+
+# ============================================================
+# Locally rebuilt AntTweakBar products
+# ============================================================
+
+/lib/AntTweakBar1.16/src/*.o
+/lib/AntTweakBar1.16/src/build*.log
+/lib/AntTweakBar1.16/lib/libAntTweakBar.so
+/lib/AntTweakBar1.16/lib/libAntTweakBar.so.*
+/lib/AntTweakBar1.16/lib/*.prebuilt_backup
+
+# ============================================================
+# Diagnostic and backup files
+# ============================================================
+
+**/*.before_*
+**/*.with_*
+**/*.broken_*
+**/*.first_owner_only_incorrect
+**/*.backup
+**/*.bak
+
+# ============================================================
+# Local diagnostic geometry
+# ============================================================
+
+/loop_distribution/remeshed_flip.obj
+/loop_distribution/sharp_sequence_*.obj
+/loop_distribution/sharp_sequence_*.csv
+/test_data/**/*_validation.json
+
+# ============================================================
+# Crash dumps
+# ============================================================
+
+core
+core.*

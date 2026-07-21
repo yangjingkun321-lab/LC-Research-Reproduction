@@ -1,0 +1,44 @@
+diff --git a/include/cinolib/meshes/hexmesh.cpp b/include/cinolib/meshes/hexmesh.cpp
+index be695fb6..71d78ef3 100644
+--- a/include/cinolib/meshes/hexmesh.cpp
++++ b/include/cinolib/meshes/hexmesh.cpp
+@@ -402,7 +402,7 @@ bool Hexmesh<M,V,E,F,P>::poly_fix_orientation()
+         for(uint pid=0; pid<this->num_polys(); ++pid)
+         {
+             this->poly_reorder_p2v(pid);
+-            this->update_hex_quality(pid);
++            this->update_p_quality(pid);
+             if(this->poly_data(pid).quality < 0.0) ++bad;
+         }
+         if(bad > 0.5*this->num_polys())
+@@ -412,7 +412,7 @@ bool Hexmesh<M,V,E,F,P>::poly_fix_orientation()
+                 this->poly_flip_winding(pid);
+                 this->poly_reorder_p2v(pid);
+             }
+-            this->update_hex_quality();
++            this->update_quality();
+         }
+         return true;
+     }
+diff --git a/include/cinolib/octree.cpp b/include/cinolib/octree.cpp
+index ffebd5e3..30050413 100644
+--- a/include/cinolib/octree.cpp
++++ b/include/cinolib/octree.cpp
+@@ -598,7 +598,7 @@ bool Octree::intersects_triangle(const vec3d t[], const bool ignore_if_valid_com
+ 
+     ids.clear();
+ 
+-    AABB t_box({t[0], t[1], t[2]});
++    AABB t_box(std::vector<vec3d>{t[0], t[1], t[2]});
+ 
+     std::stack<OctreeNode*> lifo;
+     lifo.push(root);
+@@ -658,7 +658,7 @@ bool Octree::intersects_segment(const vec3d s[], const bool ignore_if_valid_comp
+ 
+     ids.clear();
+ 
+-    AABB s_box({s[0], s[1]});
++    AABB s_box(std::vector<vec3d>{s[0], s[1]});
+ 
+     std::stack<OctreeNode*> lifo;
+     lifo.push(root);

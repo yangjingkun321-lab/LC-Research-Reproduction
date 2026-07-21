@@ -1,0 +1,8 @@
+e5476986db0d98eac98f5f3ab32df5c9c608cddd
+Date: 2026-07-17T15:07:53+08:00
+Subject: Stabilize LoopyCuts reproduction and batch processing
+
+aa29c5327e6a7a47c4a0c1fa1753cf46a8b62627
+Date: 2026-07-17T15:41:30+08:00
+Subject: Fix batch report metric extraction
+

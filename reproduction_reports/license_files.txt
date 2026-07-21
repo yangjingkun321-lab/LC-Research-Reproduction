@@ -1,0 +1,11 @@
+lib/AntTweakBar1.16/License.txt
+lib/cinolib/LICENSE
+lib/cinolib/external/eigen/COPYING.BSD
+lib/cinolib/external/eigen/COPYING.GPL
+lib/cinolib/external/eigen/COPYING.LGPL
+lib/cinolib/external/eigen/COPYING.MINPACK
+lib/cinolib/external/eigen/COPYING.MPL2
+lib/cinolib/external/eigen/COPYING.README
+lib/cinolib/external/eigen/bench/btl/COPYING
+lib/vcg/LICENSE.txt
+lib/vcg/wrap/openfbx/LICENSE

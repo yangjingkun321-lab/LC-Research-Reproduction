@@ -1,0 +1,4 @@
+ 3d53718818480c99306d3d6830f49c3604d33ebd lib/cinolib (v1.0~205)
+ 36b95962756c1fce8e29b1f8bc45967f30773c00 lib/cinolib/external/eigen (3.3.0-1993-g36b959627)
+ 66376566852b704a0e57bf49dcac74ee5210ff18 lib/cinolib/external/graph_cut (heads/master)
+ fb5258c157f9a9c40cbf4cc914dc1a7622865207 lib/vcg (v1.0.0-661-gfb5258c1)

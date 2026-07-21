@@ -1,0 +1,13 @@
+A	.gitignore
+A	apply_cinolib_compat_patch.sh
+M	loop_distribution/loop_distributor.pro
+M	loop_distribution/loop_splitter.h
+M	loop_distribution/tracing_field/anisotropic_geodesic.h
+M	loop_distribution/tracing_field/inter_cross_validator.h
+M	loop_distribution/tracing_field/loop_common_functions.h
+M	loop_distribution/tracing_field/loop_finder.h
+M	loop_distribution/tracing_field/sharp_feature_sampler.h
+A	patches/cinolib_gcc11_compat.patch
+A	run_author_models.sh
+M	volumetric_cutter/subdivision_helper.cpp
+M	volumetric_cutter/volumetric_cutter.pro
