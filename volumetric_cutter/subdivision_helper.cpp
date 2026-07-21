@@ -197,8 +197,27 @@ MetaMesh SubdivisionHelper::subdivide()
             uint mm_fid = f.first;
             if(!mm.face_is_on_srf(mm_fid)) continue;
             uint vid      = f.second;
-            int  patch_id = mm.face_data(mm_fid).label;
-            Patch & p     = patches.at(patch_id);
+            int patch_id = mm.face_data(mm_fid).label;
+            auto patch_it = patches.find(patch_id);
+
+            if(patch_it == patches.end())
+            {
+                std::cerr
+                    << "[SUBDIVISION_PATCH_FALLBACK]"
+                    << " type=face"
+                    << " mm_fid=" << mm_fid
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " reason=missing_patch"
+                    << std::endl;
+
+                // subdivision_midpoint() has already assigned this vertex.
+                // Keep the standard midpoint when no UV patch is available.
+                mm_refined.vert_data(vid).color = Color::RED();
+                continue;
+            }
+
+            Patch & p = patch_it->second;
             if(p.flawed)
             {
                 mm_refined.vert_data(vid).color = Color::RED();
@@ -561,8 +580,27 @@ MetaMesh SubdivisionHelper::subdivide()
             uint vid      = e.second;
             assert(mm.edge_adj_srf_faces(mm_eid).size()>0);
             uint mm_fid   = mm.edge_adj_srf_faces(mm_eid).front();
-            int  patch_id = mm.face_data(mm_fid).label;
-            Patch & p     = patches.at(patch_id);
+            int patch_id = mm.face_data(mm_fid).label;
+            auto patch_it = patches.find(patch_id);
+
+            if(patch_it == patches.end())
+            {
+                std::cerr
+                    << "[SUBDIVISION_PATCH_FALLBACK]"
+                    << " type=edge"
+                    << " mm_eid=" << mm_eid
+                    << " mm_fid=" << mm_fid
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " reason=missing_patch"
+                    << std::endl;
+
+                // Preserve the standard midpoint.
+                mm_refined.vert_data(vid).color = Color::RED();
+                continue;
+            }
+
+            Patch & p = patch_it->second;
             if(p.flawed)
             {
                 mm_refined.vert_data(vid).color = Color::RED();
@@ -571,9 +609,33 @@ MetaMesh SubdivisionHelper::subdivide()
 
             uint mm_v0    = mm.edge_vert_id(mm_eid,0);
             uint mm_v1    = mm.edge_vert_id(mm_eid,1);
-            uint c0       = p.mm2corners.at(mm_v0);
-            uint c1       = p.mm2corners.at(mm_v1);
-            vec3d  query = (p.m.vert(c0) + p.m.vert(c1))*0.5;
+
+            auto c0_it = p.mm2corners.find(mm_v0);
+            auto c1_it = p.mm2corners.find(mm_v1);
+
+            if(c0_it == p.mm2corners.end() ||
+               c1_it == p.mm2corners.end())
+            {
+                std::cerr
+                    << "[SUBDIVISION_PATCH_FALLBACK]"
+                    << " type=edge"
+                    << " mm_eid=" << mm_eid
+                    << " mm_fid=" << mm_fid
+                    << " mm_v0=" << mm_v0
+                    << " mm_v1=" << mm_v1
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " reason=missing_corner_mapping"
+                    << std::endl;
+
+                // Preserve the standard midpoint.
+                mm_refined.vert_data(vid).color = Color::RED();
+                continue;
+            }
+
+            uint c0 = c0_it->second;
+            uint c1 = c1_it->second;
+            vec3d query = (p.m.vert(c0) + p.m.vert(c1))*0.5;
 
             uint   pid;
             vec3d  pos;

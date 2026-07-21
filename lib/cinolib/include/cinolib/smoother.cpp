@@ -240,19 +240,36 @@ void mesh_smoother(      AbstractPolygonMesh<M1,V1,E1,P1> & m,
                    const SmootherOptions                  & opt)
 {
     Octree ref_srf, ref_feat;
+    bool ref_feat_ready = false;
+    uint ref_feat_segments = 0;
 
     // if reprojection is needed, make octrees
     if(opt.reproject_on_target)
     {
         ref_srf.build_from_mesh_polys(target);
+
         for(uint eid=0; eid<target.num_edges(); ++eid)
         {
             if(target.edge_data(eid).flags[MARKED]) // marked => flagged as a sharp feature
             {
                 ref_feat.add_segment(eid, target.edge_verts(eid));
+                ++ref_feat_segments;
             }
         }
-        ref_feat.build();
+
+        if(ref_feat_segments > 0)
+        {
+            ref_feat.build();
+            ref_feat_ready = true;
+        }
+        else
+        {
+            std::cout
+                << "[SMOOTHER_FEATURE_FALLBACK] "
+                << "target mesh has no marked feature edges; "
+                << "feature vertices will be projected onto the target surface"
+                << std::endl;
+        }
     }
 
     label_features(m);
@@ -312,7 +329,16 @@ void mesh_smoother(      AbstractPolygonMesh<M1,V1,E1,P1> & m,
                     {
                         p += feature_data.at(vid).first*res[feature_data.at(vid).second];
                     }
-                    m.vert(vid) = (opt.reproject_on_target) ? ref_feat.closest_point(p) : p;
+                    if(opt.reproject_on_target)
+                    {
+                        m.vert(vid) = ref_feat_ready
+                                    ? ref_feat.closest_point(p)
+                                    : ref_srf.closest_point(p);
+                    }
+                    else
+                    {
+                        m.vert(vid) = p;
+                    }
                     break;
                 }
 

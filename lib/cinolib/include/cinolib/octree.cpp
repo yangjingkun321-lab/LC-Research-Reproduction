@@ -598,7 +598,7 @@ bool Octree::intersects_triangle(const vec3d t[], const bool ignore_if_valid_com
 
     ids.clear();
 
-    AABB t_box({t[0], t[1], t[2]});
+    AABB t_box(std::vector<vec3d>{t[0], t[1], t[2]});
 
     std::stack<OctreeNode*> lifo;
     lifo.push(root);
@@ -658,7 +658,7 @@ bool Octree::intersects_segment(const vec3d s[], const bool ignore_if_valid_comp
 
     ids.clear();
 
-    AABB s_box({s[0], s[1]});
+    AABB s_box(std::vector<vec3d>{s[0], s[1]});
 
     std::stack<OctreeNode*> lifo;
     lifo.push(root);
