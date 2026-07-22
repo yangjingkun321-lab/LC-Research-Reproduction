@@ -31,6 +31,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <cinolib/sampling.h>
 #include <cinolib/harmonic_map.h>
 #include <cinolib/subdivision_midpoint.h>
+#include <algorithm>
 
 SubdivisionHelper::SubdivisionHelper(const TetMesh & m, const MetaMesh & mm)
 : m(m)
@@ -105,7 +106,20 @@ void SubdivisionHelper::make_uv_maps()
         else
         {
             p.second.flawed = true;
-            p.second.m.save(("/Users/cino/Desktop/errors/" + std::to_string(p.first) + ".obj").c_str());
+
+            const std::string dump_path =
+                "/tmp/loopycuts_uv_patch_" +
+                std::to_string(p.first) +
+                ".obj";
+
+            std::cout
+                << "[UV_PATCH_FALLBACK]"
+                << " patch=" << p.first
+                << " mode=standard_midpoint"
+                << " dump=" << dump_path
+                << std::endl;
+
+            p.second.m.save(dump_path.c_str());
         }
         //for(auto c : p.second.corners_uv) std::cout << "\t" << c.first << " => " << c.second << std::endl;
     }
@@ -126,11 +140,60 @@ bool SubdivisionHelper::map_to_polygon(Trimesh<> & m, const std::vector<uint> & 
     m.vert_unmark_all();
     for(uint vid : corners) m.vert_data(vid).flags[MARKED] = true;
     std::vector<uint> border = m.get_ordered_boundary_vertices();
+
     if(border.empty())
     {
-        std::cout << "WARNING: non orientable patch boundary!" << std::endl;
+        std::cout
+            << "[UV_PATCH_INVALID_BOUNDARY]"
+            << " reason=empty_or_non_orientable_boundary"
+            << " verts=" << m.num_verts()
+            << " edges=" << m.num_edges()
+            << " faces=" << m.num_polys()
+            << " corners=" << corners.size()
+            << " euler=" << m.Euler_characteristic()
+            << std::endl;
+
         return false;
     }
+
+    if(corners.empty())
+    {
+        std::cout
+            << "[UV_PATCH_INVALID_BOUNDARY]"
+            << " reason=no_corners"
+            << " verts=" << m.num_verts()
+            << " edges=" << m.num_edges()
+            << " faces=" << m.num_polys()
+            << " border_vertices=" << border.size()
+            << " euler=" << m.Euler_characteristic()
+            << std::endl;
+
+        return false;
+    }
+
+    // Every meta-mesh corner must lie on the ordered patch boundary.
+    for(uint corner : corners)
+    {
+        const auto it = std::find(border.begin(), border.end(), corner);
+
+        if(it == border.end())
+        {
+            std::cout
+                << "[UV_PATCH_INVALID_BOUNDARY]"
+                << " reason=corner_not_on_boundary"
+                << " missing_corner=" << corner
+                << " verts=" << m.num_verts()
+                << " edges=" << m.num_edges()
+                << " faces=" << m.num_polys()
+                << " border_vertices=" << border.size()
+                << " corners=" << corners.size()
+                << " euler=" << m.Euler_characteristic()
+                << std::endl;
+
+            return false;
+        }
+    }
+
     CIRCULAR_SHIFT_VEC(border, corners.front());
 
     // split the boundary into n edges, with n = #corners
@@ -144,6 +207,23 @@ bool SubdivisionHelper::map_to_polygon(Trimesh<> & m, const std::vector<uint> & 
         }
         e.push_back(border.at((i+1)%border.size()));
         edges.push_back(e);
+    }
+
+    if(edges.size() != corners.size())
+    {
+        std::cout
+            << "[UV_PATCH_INVALID_BOUNDARY]"
+            << " reason=boundary_segment_count_mismatch"
+            << " segments=" << edges.size()
+            << " corners=" << corners.size()
+            << " border_vertices=" << border.size()
+            << " verts=" << m.num_verts()
+            << " edges=" << m.num_edges()
+            << " faces=" << m.num_polys()
+            << " euler=" << m.Euler_characteristic()
+            << std::endl;
+
+        return false;
     }
 
     std::vector<vec3d> poly = n_sided_polygon(vec3d(0,0,0), corners.size(), 1.0);
