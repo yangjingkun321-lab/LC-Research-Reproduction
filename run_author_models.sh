@@ -420,16 +420,34 @@ run_case()
     local stats
 
     stats="$(
-        grep -Eo \
-          '[0-9]+ hexa - [0-9]+ prisms - [0-9]+ hexable with midpoint - [0-9]+ others' \
-          "$vclog" \
-        | tail -n 1
-    )"
+        python3 - "$vclog" <<'PY_CELL_COUNTS'
+from pathlib import Path
+import re
+import sys
 
-    if [[ -z "$stats" ]]
-    then
-        stats="NOT_FOUND"
-    fi
+text = Path(sys.argv[1]).read_text(
+    encoding="utf-8",
+    errors="replace",
+)
+
+# 删除终端颜色和其他 ANSI CSI 控制序列。
+text = re.sub(
+    r"\x1b\[[0-?]*[ -/]*[@-~]",
+    "",
+    text,
+)
+
+matches = re.findall(
+    r"\d+\s+hexa\s+-\s+"
+    r"\d+\s+prisms\s+-\s+"
+    r"\d+\s+hexable with midpoint\s+-\s+"
+    r"\d+\s+others",
+    text,
+)
+
+print(matches[-1] if matches else "NOT_FOUND")
+PY_CELL_COUNTS
+    )"
 
     local maxrss
 
