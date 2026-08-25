@@ -31,34 +31,106 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "state.h"
 #include "batch.h"
 #include "gui.h"
+#include "rl_server.h"
 
 using namespace cinolib;
 
 //::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-bool        batch_mode;
+bool batch_mode;
+bool external_order_mode;
+bool rl_server_mode;
+
 std::string model_name;
 std::string loops_name;
 std::string output_name;
+std::string external_order_name;
 
 //::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 void parse_command_line(int argc, char **argv)
 {
-    assert(argc>=3);
+    assert(argc >= 3);
+
     model_name = std::string(argv[1]);
     loops_name = std::string(argv[2]);
-    batch_mode = (argc==5 && strcmp(argv[3],"-batch-mode")==0);
-    if(batch_mode) output_name = argv[4];
+
+    batch_mode = false;
+    external_order_mode = false;
+    rl_server_mode = false;
+
+    if (argc == 5 && strcmp(argv[3], "-batch-mode") == 0)
+    {
+        batch_mode = true;
+        output_name = argv[4];
+    }
+    else if (argc == 6 && strcmp(argv[3], "-external-order") == 0)
+    {
+        external_order_mode = true;
+        external_order_name = argv[4];
+        output_name = argv[5];
+    }
+    else if (argc == 4 && strcmp(argv[3], "-rl-server") == 0)
+    {
+        rl_server_mode = true;
+    }
+    else if (argc != 3)
+    {
+        std::cerr
+            << "ERROR: invalid command line arguments."
+            << std::endl;
+
+        exit(1);
+    }
 
     std::cout << std::endl;
-    std::cout << "input mesh  : " << model_name << std::endl;
-    std::cout << "input loops : " << loops_name << std::endl;
-    std::cout << "batch mode  : " << batch_mode << std::endl;
-    if(batch_mode)
+
+    std::cout
+        << "input mesh          : "
+        << model_name
+        << std::endl;
+
+    std::cout
+        << "input loops         : "
+        << loops_name
+        << std::endl;
+
+    std::cout
+        << "batch mode          : "
+        << batch_mode
+        << std::endl;
+
+    std::cout
+        << "external order mode : "
+        << external_order_mode
+        << std::endl;
+
+    std::cout
+        << "rl server mode      : "
+        << rl_server_mode
+        << std::endl;
+
+    if (batch_mode)
     {
-        std::cout << "output mesh : " << output_name << std::endl;
+        std::cout
+            << "output mesh         : "
+            << output_name
+            << std::endl;
     }
+
+    if (external_order_mode)
+    {
+        std::cout
+            << "order file          : "
+            << external_order_name
+            << std::endl;
+
+        std::cout
+            << "output mesh         : "
+            << output_name
+            << std::endl;
+    }
+
     std::cout << std::endl;
 }
 
@@ -160,12 +232,16 @@ void refine_mesh(TetMesh & m)
 
 int main(int argc, char **argv)
 {
-    if(argc!=3 && argc!=5)
+    if (argc != 3 &&
+        argc != 4 &&
+        argc != 5 &&
+        argc != 6)
     {
         std::cout << "                                                           " << std::endl;
         std::cout << "Usage:                                                     " << std::endl;
         std::cout << "                                                           " << std::endl;
         std::cout << "  ./volumetric_cut <mesh> <loops> [-batch-mode <folder>]   " << std::endl;
+        std::cout << "  ./volumetric_cut <mesh> <loops> -external-order <order.txt> <folder>" << std::endl;
         std::cout << "                                                           " << std::endl;
         std::cout << "  mesh   is a triangle mesh, either in OFF or OBJ format   " << std::endl;
         std::cout << "  loops  is a text file (see the examples for the format)  " << std::endl;
@@ -186,10 +262,21 @@ int main(int argc, char **argv)
     refine_mesh(state.m_vol);
     state.m_vol.poly_apply_labels(std::vector<int>(state.m_vol.num_polys(),0));
 
-    if(batch_mode)
+    if (batch_mode)
     {
         run_batch(state);
         return 0;
+    }
+    else if (external_order_mode)
+    {
+        const bool ok =
+            run_external_order(state, external_order_name);
+
+        return ok ? 0 : 1;
+    }
+    else if (rl_server_mode)
+    {
+        return run_rl_server(state);
     }
     else
     {
@@ -199,15 +286,32 @@ int main(int argc, char **argv)
         GUI gui;
         init_gui(gui, state);
         init_events(gui, state);
-        // CMD+1 to show trimesh  controls.
-        // CMD+2 to show tetmesh  controls.
+
+        // CMD+1 to show trimesh controls.
+        // CMD+2 to show tetmesh controls.
         // CMD+3 to show polymesh controls.
-        SurfaceMeshControlPanel<SrfMesh> tri_panel(&state.m_srf,   &gui.left);
-        VolumeMeshControlPanel<TetMesh>  tet_panel(&state.m_vol,   &gui.left);
+        SurfaceMeshControlPanel<SrfMesh> tri_panel(&state.m_srf, &gui.left);
+        VolumeMeshControlPanel<TetMesh> tet_panel(&state.m_vol, &gui.left);
         VolumeMeshControlPanel<MetaMesh> poly_panel(&state.m_poly, &gui.right);
-        QApplication::connect(new QShortcut(QKeySequence(Qt::CTRL+Qt::Key_1), &gui.window), &QShortcut::activated, [&](){tri_panel.show();});
-        QApplication::connect(new QShortcut(QKeySequence(Qt::CTRL+Qt::Key_2), &gui.window), &QShortcut::activated, [&](){tet_panel.show();});
-        QApplication::connect(new QShortcut(QKeySequence(Qt::CTRL+Qt::Key_3), &gui.window), &QShortcut::activated, [&](){poly_panel.show();});
+
+        QApplication::connect(
+            new QShortcut(QKeySequence(Qt::CTRL + Qt::Key_1), &gui.window),
+            &QShortcut::activated,
+            [&]()
+            { tri_panel.show(); });
+
+        QApplication::connect(
+            new QShortcut(QKeySequence(Qt::CTRL + Qt::Key_2), &gui.window),
+            &QShortcut::activated,
+            [&]()
+            { tet_panel.show(); });
+
+        QApplication::connect(
+            new QShortcut(QKeySequence(Qt::CTRL + Qt::Key_3), &gui.window),
+            &QShortcut::activated,
+            [&]()
+            { poly_panel.show(); });
+
         return app.exec();
     }
 }

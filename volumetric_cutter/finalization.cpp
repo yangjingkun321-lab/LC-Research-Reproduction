@@ -29,6 +29,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "cut.h"
 
 extern bool batch_mode;
+extern bool external_order_mode;
+extern bool rl_server_mode;
 
 //::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -316,5 +318,10 @@ void finalize_block_decomposition(GlobalState & state)
         }
     }
 
-    if(!batch_mode) state.m_poly.updateGL();
+    if (!batch_mode &&
+        !external_order_mode &&
+        !rl_server_mode)
+    {
+        state.m_poly.updateGL();
+    }
 }

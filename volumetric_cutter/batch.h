@@ -28,7 +28,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #define BATCH_H
 
 #include "state.h"
+#include <string>
 
-void run_batch(GlobalState & state);
+void run_batch(GlobalState &state);
+
+// Run Stage 2 using an externally specified permutation of loop IDs.
+// Returns false if the order file is invalid.
+bool run_external_order(GlobalState &state,
+                        const std::string &order_file);
 
 #endif // BATCH_H

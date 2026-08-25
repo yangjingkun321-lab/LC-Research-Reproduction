@@ -33,6 +33,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "labeling.h"
 
 extern bool batch_mode;
+extern bool external_order_mode;
+extern bool rl_server_mode;
 
 //::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -424,7 +426,9 @@ void cut(GlobalState & state, const uint lid)
     state.profiler.push("Labeling update");
     uint n = update_poly_labeling(state.m_vol);
     state.profiler.pop("(" + std::to_string(n) + " clusters)");
-    if(!batch_mode)
+    if (!batch_mode &&
+        !external_order_mode &&
+        !rl_server_mode)
     {
         state.profiler.push("Color wrt label + updateGL");
         state.m_vol.poly_color_wrt_label(false, 0.25, 1.0);

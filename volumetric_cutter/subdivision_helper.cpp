@@ -31,6 +31,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <cinolib/sampling.h>
 #include <cinolib/harmonic_map.h>
 #include <cinolib/subdivision_midpoint.h>
+#include <algorithm>
 
 SubdivisionHelper::SubdivisionHelper(const TetMesh & m, const MetaMesh & mm)
 : m(m)
@@ -105,7 +106,20 @@ void SubdivisionHelper::make_uv_maps()
         else
         {
             p.second.flawed = true;
-            p.second.m.save(("/Users/cino/Desktop/errors/" + std::to_string(p.first) + ".obj").c_str());
+
+            const std::string dump_path =
+                "/tmp/loopycuts_uv_patch_" +
+                std::to_string(p.first) +
+                ".obj";
+
+            std::cout
+                << "[UV_PATCH_FALLBACK]"
+                << " patch=" << p.first
+                << " mode=standard_midpoint"
+                << " dump=" << dump_path
+                << std::endl;
+
+            p.second.m.save(dump_path.c_str());
         }
         //for(auto c : p.second.corners_uv) std::cout << "\t" << c.first << " => " << c.second << std::endl;
     }
@@ -126,11 +140,60 @@ bool SubdivisionHelper::map_to_polygon(Trimesh<> & m, const std::vector<uint> & 
     m.vert_unmark_all();
     for(uint vid : corners) m.vert_data(vid).flags[MARKED] = true;
     std::vector<uint> border = m.get_ordered_boundary_vertices();
+
     if(border.empty())
     {
-        std::cout << "WARNING: non orientable patch boundary!" << std::endl;
+        std::cout
+            << "[UV_PATCH_INVALID_BOUNDARY]"
+            << " reason=empty_or_non_orientable_boundary"
+            << " verts=" << m.num_verts()
+            << " edges=" << m.num_edges()
+            << " faces=" << m.num_polys()
+            << " corners=" << corners.size()
+            << " euler=" << m.Euler_characteristic()
+            << std::endl;
+
         return false;
     }
+
+    if(corners.empty())
+    {
+        std::cout
+            << "[UV_PATCH_INVALID_BOUNDARY]"
+            << " reason=no_corners"
+            << " verts=" << m.num_verts()
+            << " edges=" << m.num_edges()
+            << " faces=" << m.num_polys()
+            << " border_vertices=" << border.size()
+            << " euler=" << m.Euler_characteristic()
+            << std::endl;
+
+        return false;
+    }
+
+    // Every meta-mesh corner must lie on the ordered patch boundary.
+    for(uint corner : corners)
+    {
+        const auto it = std::find(border.begin(), border.end(), corner);
+
+        if(it == border.end())
+        {
+            std::cout
+                << "[UV_PATCH_INVALID_BOUNDARY]"
+                << " reason=corner_not_on_boundary"
+                << " missing_corner=" << corner
+                << " verts=" << m.num_verts()
+                << " edges=" << m.num_edges()
+                << " faces=" << m.num_polys()
+                << " border_vertices=" << border.size()
+                << " corners=" << corners.size()
+                << " euler=" << m.Euler_characteristic()
+                << std::endl;
+
+            return false;
+        }
+    }
+
     CIRCULAR_SHIFT_VEC(border, corners.front());
 
     // split the boundary into n edges, with n = #corners
@@ -144,6 +207,23 @@ bool SubdivisionHelper::map_to_polygon(Trimesh<> & m, const std::vector<uint> & 
         }
         e.push_back(border.at((i+1)%border.size()));
         edges.push_back(e);
+    }
+
+    if(edges.size() != corners.size())
+    {
+        std::cout
+            << "[UV_PATCH_INVALID_BOUNDARY]"
+            << " reason=boundary_segment_count_mismatch"
+            << " segments=" << edges.size()
+            << " corners=" << corners.size()
+            << " border_vertices=" << border.size()
+            << " verts=" << m.num_verts()
+            << " edges=" << m.num_edges()
+            << " faces=" << m.num_polys()
+            << " euler=" << m.Euler_characteristic()
+            << std::endl;
+
+        return false;
     }
 
     std::vector<vec3d> poly = n_sided_polygon(vec3d(0,0,0), corners.size(), 1.0);
@@ -197,8 +277,27 @@ MetaMesh SubdivisionHelper::subdivide()
             uint mm_fid = f.first;
             if(!mm.face_is_on_srf(mm_fid)) continue;
             uint vid      = f.second;
-            int  patch_id = mm.face_data(mm_fid).label;
-            Patch & p     = patches.at(patch_id);
+            int patch_id = mm.face_data(mm_fid).label;
+            auto patch_it = patches.find(patch_id);
+
+            if(patch_it == patches.end())
+            {
+                std::cerr
+                    << "[SUBDIVISION_PATCH_FALLBACK]"
+                    << " type=face"
+                    << " mm_fid=" << mm_fid
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " reason=missing_patch"
+                    << std::endl;
+
+                // subdivision_midpoint() has already assigned this vertex.
+                // Keep the standard midpoint when no UV patch is available.
+                mm_refined.vert_data(vid).color = Color::RED();
+                continue;
+            }
+
+            Patch & p = patch_it->second;
             if(p.flawed)
             {
                 mm_refined.vert_data(vid).color = Color::RED();
@@ -561,8 +660,27 @@ MetaMesh SubdivisionHelper::subdivide()
             uint vid      = e.second;
             assert(mm.edge_adj_srf_faces(mm_eid).size()>0);
             uint mm_fid   = mm.edge_adj_srf_faces(mm_eid).front();
-            int  patch_id = mm.face_data(mm_fid).label;
-            Patch & p     = patches.at(patch_id);
+            int patch_id = mm.face_data(mm_fid).label;
+            auto patch_it = patches.find(patch_id);
+
+            if(patch_it == patches.end())
+            {
+                std::cerr
+                    << "[SUBDIVISION_PATCH_FALLBACK]"
+                    << " type=edge"
+                    << " mm_eid=" << mm_eid
+                    << " mm_fid=" << mm_fid
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " reason=missing_patch"
+                    << std::endl;
+
+                // Preserve the standard midpoint.
+                mm_refined.vert_data(vid).color = Color::RED();
+                continue;
+            }
+
+            Patch & p = patch_it->second;
             if(p.flawed)
             {
                 mm_refined.vert_data(vid).color = Color::RED();
@@ -571,9 +689,33 @@ MetaMesh SubdivisionHelper::subdivide()
 
             uint mm_v0    = mm.edge_vert_id(mm_eid,0);
             uint mm_v1    = mm.edge_vert_id(mm_eid,1);
-            uint c0       = p.mm2corners.at(mm_v0);
-            uint c1       = p.mm2corners.at(mm_v1);
-            vec3d  query = (p.m.vert(c0) + p.m.vert(c1))*0.5;
+
+            auto c0_it = p.mm2corners.find(mm_v0);
+            auto c1_it = p.mm2corners.find(mm_v1);
+
+            if(c0_it == p.mm2corners.end() ||
+               c1_it == p.mm2corners.end())
+            {
+                std::cerr
+                    << "[SUBDIVISION_PATCH_FALLBACK]"
+                    << " type=edge"
+                    << " mm_eid=" << mm_eid
+                    << " mm_fid=" << mm_fid
+                    << " mm_v0=" << mm_v0
+                    << " mm_v1=" << mm_v1
+                    << " refined_vid=" << vid
+                    << " patch_id=" << patch_id
+                    << " reason=missing_corner_mapping"
+                    << std::endl;
+
+                // Preserve the standard midpoint.
+                mm_refined.vert_data(vid).color = Color::RED();
+                continue;
+            }
+
+            uint c0 = c0_it->second;
+            uint c1 = c1_it->second;
+            vec3d query = (p.m.vert(c0) + p.m.vert(c1))*0.5;
 
             uint   pid;
             vec3d  pos;

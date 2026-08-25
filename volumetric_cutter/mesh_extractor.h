@@ -43,6 +43,31 @@ class MeshExtractor
         MetaMesh mm;
 
         //::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+        //
+        // Read-only diagnostics for RL observation instrumentation.
+        //
+        // These values are already computed by MeshExtractor while
+        // constructing the current meta mesh. Exposing them here does
+        // NOT trigger any additional geometric computation.
+        //
+
+        uint nonmanifold_poly_count() const
+        {
+            return polys_non_manifold;
+        }
+
+        uint high_genus_poly_count() const
+        {
+            return polys_with_high_genus;
+        }
+
+        uint buggy_chain_count() const
+        {
+            return static_cast<uint>(
+                buggy_chains.size());
+        }
+
+        //::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
         void init      (TetMesh & m);
         void make_verts(TetMesh & m);
