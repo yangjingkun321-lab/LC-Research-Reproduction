@@ -3,6 +3,10 @@ QT             += core opengl
 TEMPLATE        = app
 TARGET          = volumetric_cutter
 CONFIG         += c++11
+
+# Frozen V5 quality arithmetic FP contract.
+# Required for C++ <-> Python binary64 parity.
+QMAKE_CXXFLAGS += -fno-fast-math -ffp-contract=off
 CONFIG         -= app_bundle
 INCLUDEPATH    += $$CINOLIB_PATH/include
 INCLUDEPATH    += $$CINOLIB_PATH/external/eigen
@@ -28,6 +32,7 @@ SOURCES += batch.cpp
 SOURCES += cut_step.cpp
 SOURCES += rl_server.cpp
 SOURCES += quality_ref_v1.cpp
+SOURCES += quality_metrics_v1.cpp
 SOURCES += polyhedral_decomposition.cpp
 SOURCES += cut.cpp
 SOURCES += gui.cpp
@@ -44,6 +49,7 @@ HEADERS += batch.h
 HEADERS += cut_step.h
 HEADERS += rl_server.h
 HEADERS += quality_ref_v1.h
+HEADERS += quality_metrics_v1.h
 HEADERS += polyhedral_decomposition.h
 HEADERS += cut.h
 HEADERS += definitions.h

@@ -5,12 +5,21 @@
 #include "subdivision_helper.h"
 #include "mesh_smoother.h"
 #include "polyhedral_decomposition.h"
+#include "quality_ref_v1.h"
+#include "quality_metrics_v1.h"
 
 #include <cinolib/export_hexahedra.h>
 #include <cinolib/string_utilities.h>
 
+#include <QCryptographicHash>
+
+#include <cstdint>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <locale>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 extern std::string model_name;
@@ -409,17 +418,109 @@ static void print_available_actions(
 // This mutates state.m_poly / state.m_vol and must only be called once
 // after the loop-selection episode has terminated.
 //
+static std::string sha256_file_hex_v1(
+    const std::string &path)
+{
+    std::ifstream in(
+        path.c_str(),
+        std::ios::binary);
+
+
+    if (!in)
+    {
+        throw std::runtime_error(
+            "cannot open Stage2 input for SHA256");
+    }
+
+
+    QCryptographicHash hash(
+        QCryptographicHash::Sha256);
+
+
+    char buffer[
+        65536
+    ];
+
+
+    while (in)
+    {
+        in.read(
+            buffer,
+            sizeof(
+                buffer));
+
+
+        const std::streamsize count =
+            in.gcount();
+
+
+        if (count > 0)
+        {
+            hash.addData(
+                buffer,
+                static_cast<int>(
+                    count));
+        }
+    }
+
+
+    if (!in.eof())
+    {
+        throw std::runtime_error(
+            "error while reading Stage2 input for SHA256");
+    }
+
+
+    const QByteArray hex =
+        hash.result().toHex();
+
+
+    return std::string(
+        hex.constData(),
+        static_cast<std::size_t>(
+            hex.size()));
+}
+
+
+//::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+//
+// Perform the same post-processing pipeline used by batch mode.
+//
+// IMPORTANT:
+//
+// This mutates state.m_poly / state.m_vol and must only be called once
+// after the loop-selection episode has terminated.
+//
+// FINALIZE_QUALITY uses this SAME pipeline.  It does not create a
+// second finalization path and does not serialize geometry.
+//
 static void finalize_rl_episode(
     GlobalState &state,
     const std::string &output_dir,
-    const bool save_outputs)
+    const bool save_outputs,
+    const loopycuts_quality_v1::QualityRef *quality_ref)
 {
+    const bool quality_mode =
+        (
+            quality_ref
+            !=
+            NULL
+        );
+
+
     const std::string model =
         get_file_name(
             model_name,
             false);
 
-    if (save_outputs)
+
+    if (quality_mode)
+    {
+        std::cout
+            << "[RL] FINALIZE_QUALITY_BEGIN"
+            << std::endl;
+    }
+    else if (save_outputs)
     {
         std::cout
             << "[RL] FINALIZE_BEGIN"
@@ -434,16 +535,19 @@ static void finalize_rl_episode(
             << std::endl;
     }
 
+
     //
     // IMPORTANT:
     //
-    // FINALIZE and FINALIZE_EVAL intentionally execute the exact
-    // same geometric post-processing pipeline.
+    // FINALIZE, FINALIZE_EVAL, and FINALIZE_QUALITY intentionally
+    // execute the exact same geometric post-processing pipeline.
     //
-    // FINALIZE_EVAL differs ONLY by skipping file serialization.
+    // FINALIZE_EVAL and FINALIZE_QUALITY differ from FINALIZE only
+    // by skipping file serialization.
     //
     finalize_block_decomposition(
         state);
+
 
     if (save_outputs)
     {
@@ -454,12 +558,15 @@ static void finalize_rl_episode(
                 .c_str());
     }
 
+
     SubdivisionHelper sh(
         state.m_vol,
         state.m_poly);
 
+
     state.m_poly =
         sh.subdivide();
+
 
     if (save_outputs)
     {
@@ -470,9 +577,11 @@ static void finalize_rl_episode(
                 .c_str());
     }
 
+
     smoother(
         state.m_poly,
         state.m_srf);
+
 
     if (save_outputs)
     {
@@ -483,36 +592,49 @@ static void finalize_rl_episode(
                 .c_str());
     }
 
+
     classify_polyhedra(
         state.m_poly);
+
 
     //
     // MAKE HEXMESH
     //
     Hexmesh<MM, MV, ME, MF, MP> hm;
 
+
     export_hexahedra(
         state.m_poly,
         hm);
 
+
     const uint nh =
         hm.num_polys();
+
 
     const uint np =
         state.m_poly.num_polys();
 
+
     const bool full_hex =
-        (nh == np);
+        (
+            nh
+            ==
+            np
+        );
+
 
     if (full_hex)
     {
         //
-        // This MUST run in both FINALIZE and FINALIZE_EVAL.
+        // This MUST run in FINALIZE, FINALIZE_EVAL, and
+        // FINALIZE_QUALITY.
         //
         // A failure here is part of the real finalization outcome
         // and must not be hidden merely because no file is saved.
         //
         hm.poly_fix_orientation();
+
 
         if (save_outputs)
         {
@@ -524,6 +646,12 @@ static void finalize_rl_episode(
         }
     }
 
+
+    //
+    // Existing protocol record.
+    //
+    // DO NOT add V5 quality fields to this line.
+    //
     std::cout
         << "[RL] FINAL_RESULT"
         << " hex=" << nh
@@ -531,7 +659,114 @@ static void finalize_rl_episode(
         << " full_hex=" << full_hex
         << std::endl;
 
-    if (save_outputs)
+
+    if (quality_mode)
+    {
+        const loopycuts_quality_v1::DcMetricsV1 dc =
+            loopycuts_quality_v1::compute_dc_v1(
+                static_cast<std::uint64_t>(
+                    np),
+                static_cast<std::uint64_t>(
+                    nh));
+
+
+        const loopycuts_quality_v1::FidelityMetricsV1
+            fidelity =
+                loopycuts_quality_v1::compute_q_fidelity_v1(
+                    state.m_srf,
+                    state.m_poly,
+                    *quality_ref);
+
+
+        //
+        // Protocol floating-point transport is exact round-trip
+        // binary64 text (.17g / defaultfloat).
+        //
+        // Save and restore stream state so the new command cannot
+        // leak formatting changes into existing protocol output.
+        //
+        const std::ios::fmtflags old_flags =
+            std::cout.flags();
+
+
+        const std::streamsize old_precision =
+            std::cout.precision();
+
+
+        const std::locale old_locale =
+            std::cout.getloc();
+
+
+        std::cout.imbue(
+            std::locale::classic());
+
+
+        std::cout
+            << std::setprecision(
+                   17)
+            << std::defaultfloat;
+
+
+        std::cout
+            << "[RL] FINALIZE_QUALITY"
+            << " model="
+            << quality_ref->model
+            << " hex="
+            << nh
+            << " total_polys="
+            << np
+            << " nonhex="
+            << dc.n_nonhex
+            << " d_c="
+            << dc.d_c
+            << " q_missing="
+            << fidelity.missing.q_missing
+            << " q_spurious="
+            << fidelity.spurious.q_spurious
+            << " q_shape="
+            << fidelity.q_shape
+            << " sharp_active="
+            << fidelity.sharp_active
+            << " sharp_metrics_valid="
+            << fidelity.sharp_metrics_valid
+            << " q_sharp=";
+
+
+        if (fidelity.sharp_metrics_valid)
+        {
+            std::cout
+                << fidelity.sharp.q_sharp;
+        }
+        else
+        {
+            std::cout
+                << "NA";
+        }
+
+
+        std::cout
+            << " q_fidelity="
+            << fidelity.q_fidelity
+            << std::endl;
+
+
+        std::cout.flags(
+            old_flags);
+
+
+        std::cout.precision(
+            old_precision);
+
+
+        std::cout.imbue(
+            old_locale);
+
+
+        std::cout
+            << "[RL] FINALIZE_QUALITY_END"
+            << std::endl;
+    }
+    else if (save_outputs)
     {
         std::cout
             << "[RL] FINALIZE_END"
@@ -920,7 +1155,8 @@ int run_rl_server(
         //::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
         if (command == "FINALIZE" ||
-            command == "FINALIZE_EVAL")
+            command == "FINALIZE_EVAL" ||
+            command == "FINALIZE_QUALITY")
         {
             if (finalized)
             {
@@ -932,18 +1168,64 @@ int run_rl_server(
                 continue;
             }
 
+
             const bool save_outputs =
-                (command == "FINALIZE");
+                (
+                    command
+                    ==
+                    "FINALIZE"
+                );
+
+
+            const bool quality_mode =
+                (
+                    command
+                    ==
+                    "FINALIZE_QUALITY"
+                );
+
 
             std::string output_dir;
+            std::string quality_ref_path;
+
 
             if (save_outputs)
             {
+                //
+                // Preserve existing FINALIZE argument semantics.
+                //
                 if (!(iss >> output_dir))
                 {
                     std::cout
                         << "[RL] ERROR"
                         << " reason=MISSING_OUTPUT_DIR"
+                        << std::endl;
+
+                    continue;
+                }
+            }
+            else if (quality_mode)
+            {
+                if (!(iss >> quality_ref_path))
+                {
+                    std::cout
+                        << "[RL] ERROR"
+                        << " reason=MISSING_QUALITY_REF"
+                        << std::endl;
+
+                    continue;
+                }
+
+
+                std::string unexpected_argument;
+
+
+                if (iss >> unexpected_argument)
+                {
+                    std::cout
+                        << "[RL] ERROR"
+                        << " reason=UNEXPECTED_ARGUMENT"
+                        << " command=FINALIZE_QUALITY"
                         << std::endl;
 
                     continue;
@@ -955,6 +1237,7 @@ int run_rl_server(
                 // FINALIZE_EVAL is deliberately argument-free.
                 //
                 std::string unexpected_argument;
+
 
                 if (iss >> unexpected_argument)
                 {
@@ -968,15 +1251,12 @@ int run_rl_server(
                 }
             }
 
+
             //
             // Do not finalize while there are still legal
             // Stage-2 loop actions.
             //
-            // Note that terminal does NOT require
-            // converged == true.
-            //
-            // A failed loop-selection trajectory may still
-            // hand control to LoopyCuts finalization.
+            // terminal does NOT require converged == true.
             //
             if (!rl_terminal(
                     state,
@@ -994,23 +1274,106 @@ int run_rl_server(
                 continue;
             }
 
+
+            loopycuts_quality_v1::QualityRef
+                quality_ref;
+
+
+            const loopycuts_quality_v1::QualityRef
+                *quality_ref_ptr =
+                    NULL;
+
+
+            if (quality_mode)
+            {
+                //
+                // Parse and validate the immutable QUALITY_REF_V1
+                // before finalization mutates state.
+                //
+                try
+                {
+                    quality_ref =
+                        loopycuts_quality_v1::read_quality_ref_v1(
+                            quality_ref_path);
+                }
+                catch (
+                    const std::exception &)
+                {
+                    std::cout
+                        << "[RL] ERROR"
+                        << " reason=INVALID_QUALITY_REF"
+                        << std::endl;
+
+                    continue;
+                }
+
+
+                //
+                // Strong binding:
+                //
+                // QUALITY_REF_V1 carries the SHA256 of the exact
+                // Stage2 OBJ.  Bind it to the actual file loaded as
+                // model_name instead of relying on filename heuristics.
+                //
+                const std::string runtime_stage2_sha256 =
+                    sha256_file_hex_v1(
+                        model_name);
+
+
+                if (
+                    runtime_stage2_sha256
+                    !=
+                    quality_ref.stage2_input_sha256)
+                {
+                    std::cout
+                        << "[RL] ERROR"
+                        << " reason=QUALITY_REF_STAGE2_SHA256_MISMATCH"
+                        << " expected="
+                        << quality_ref.stage2_input_sha256
+                        << " actual="
+                        << runtime_stage2_sha256
+                        << std::endl;
+
+                    continue;
+                }
+
+
+                quality_ref_ptr =
+                    &quality_ref;
+            }
+
+
             finalize_rl_episode(
                 state,
                 output_dir,
-                save_outputs);
+                save_outputs,
+                quality_ref_ptr);
 
-            finalized = true;
+
+            finalized =
+                true;
+
 
             //
             // Finalization mutates the decomposition.
-            // The diagnostics stored from the final RL selection step
-            // no longer describe this new state.
+            // Diagnostics from the final RL selection step no longer
+            // describe this state.
             //
-            diagnostics_valid = false;
+            diagnostics_valid =
+                false;
 
-            nonmanifold_polys = 0;
-            high_genus_polys = 0;
-            buggy_chains = 0;
+
+            nonmanifold_polys =
+                0;
+
+
+            high_genus_polys =
+                0;
+
+
+            buggy_chains =
+                0;
+
 
             print_rl_state(
                 state,
@@ -1023,13 +1386,16 @@ int run_rl_server(
                 high_genus_polys,
                 buggy_chains);
 
+
             print_loop_status(
                 state);
+
 
             print_available_actions(
                 state,
                 regular_phase_closed,
                 finalized);
+
 
             continue;
         }
