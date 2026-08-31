@@ -1156,7 +1156,8 @@ int run_rl_server(
 
         if (command == "FINALIZE" ||
             command == "FINALIZE_EVAL" ||
-            command == "FINALIZE_QUALITY")
+            command == "FINALIZE_QUALITY" ||
+            command == "FINALIZE_QUALITY_EXPORT")
         {
             if (finalized)
             {
@@ -1169,12 +1170,22 @@ int run_rl_server(
             }
 
 
+            const bool quality_export_mode =
+                (
+                    command
+                    ==
+                    "FINALIZE_QUALITY_EXPORT"
+                );
+
+
             const bool save_outputs =
                 (
                     command
                     ==
                     "FINALIZE"
-                );
+                )
+                ||
+                quality_export_mode;
 
 
             const bool quality_mode =
@@ -1182,14 +1193,16 @@ int run_rl_server(
                     command
                     ==
                     "FINALIZE_QUALITY"
-                );
+                )
+                ||
+                quality_export_mode;
 
 
             std::string output_dir;
             std::string quality_ref_path;
 
 
-            if (save_outputs)
+            if (command == "FINALIZE")
             {
                 //
                 // Preserve existing FINALIZE argument semantics.
@@ -1204,7 +1217,7 @@ int run_rl_server(
                     continue;
                 }
             }
-            else if (quality_mode)
+            else if (command == "FINALIZE_QUALITY")
             {
                 if (!(iss >> quality_ref_path))
                 {
@@ -1226,6 +1239,44 @@ int run_rl_server(
                         << "[RL] ERROR"
                         << " reason=UNEXPECTED_ARGUMENT"
                         << " command=FINALIZE_QUALITY"
+                        << std::endl;
+
+                    continue;
+                }
+            }
+            else if (command == "FINALIZE_QUALITY_EXPORT")
+            {
+                if (!(iss >> quality_ref_path))
+                {
+                    std::cout
+                        << "[RL] ERROR"
+                        << " reason=MISSING_QUALITY_REF"
+                        << std::endl;
+
+                    continue;
+                }
+
+
+                if (!(iss >> output_dir))
+                {
+                    std::cout
+                        << "[RL] ERROR"
+                        << " reason=MISSING_OUTPUT_DIR"
+                        << std::endl;
+
+                    continue;
+                }
+
+
+                std::string unexpected_argument;
+
+
+                if (iss >> unexpected_argument)
+                {
+                    std::cout
+                        << "[RL] ERROR"
+                        << " reason=UNEXPECTED_ARGUMENT"
+                        << " command=FINALIZE_QUALITY_EXPORT"
                         << std::endl;
 
                     continue;
